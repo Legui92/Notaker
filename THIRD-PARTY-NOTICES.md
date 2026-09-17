@@ -1,6 +1,6 @@
 # Third-party notices
 
-Notaker includes Whisper.net / Whisper.net.Runtime 1.9.0, whisper.cpp / ggml, NAudio 2.2.1 and the .NET 8 runtime. Downloaded Whisper models are distributed under the upstream MIT license.
+Notaker includes Whisper.net / Whisper.net.Runtime / Whisper.net.Runtime.Vulkan 1.9.0, whisper.cpp / ggml, NAudio 2.2.1 and the .NET 8 runtime. Downloaded Whisper models are distributed under the upstream MIT license.
 
 ## Whisper.net
 
