@@ -5,8 +5,8 @@ Dictado local en español e inglés. Pulsa un atajo para grabar y vuelve a pulsa
 ## Uso
 
 1. Abre `artifacts/Notaker/Notaker.exe` (o extrae el ZIP completo).
-2. Selecciona **Base** para menor latencia o **Small** para priorizar precisión. Pulsa **Descargar modelo**. Solo necesitas internet para esa descarga (142 / 466 MiB).
-3. Elige el micrófono y el idioma. Automático reconoce el idioma dominante; fija Español o English para mayor previsibilidad. No es un modo garantizado de reconocimiento bilingüe dentro de una misma frase.
+2. Selecciona **Large v3 Turbo** como punto de partida para mayor precisión o **Large v3** para el modelo completo. Base y Small siguen disponibles para equipos más lentos. Pulsa **Descargar modelo** una sola vez por modelo.
+3. Elige el micrófono y el idioma. Automático reconoce el idioma dominante; fija Español o English para dictados en un solo idioma. **Español + English · Spanglish** añade contexto bilingüe sin solicitar traducción. No garantiza reconocer cada cambio de idioma dentro de una misma frase.
 4. Sitúa el cursor en un campo de texto de cualquier aplicación normal.
 5. Pulsa **Ctrl + Alt + Espacio**, habla y vuelve a pulsar el mismo atajo. El indicador inferior muestra grabación y procesamiento.
 6. Notaker transcribe y envía **Ctrl+V** a la ventana de origen. El dictado también queda en el portapapeles. Si Windows impide activar la ventana o inyectar las teclas, pégalo manualmente con Ctrl+V.
@@ -15,9 +15,9 @@ Para cambiar el atajo, haz clic en el campo ATAJO GLOBAL, pulsa tu combinación 
 
 ## Precisión y muletillas
 
-Whisper.net ejecuta los modelos Whisper mediante whisper.cpp. No es un servicio de corrección editorial. Whisper puede omitir vacilaciones, pero **no garantiza eliminar muletillas, repeticiones ni corregir todos los errores**. Los modelos mayores suelen mejorar la precisión con más consumo de memoria y tiempo de procesamiento. Prueba ambos con tu voz y vocabulario.
+Whisper.net ejecuta los modelos Whisper mediante whisper.cpp. No es un servicio de corrección editorial. Whisper puede omitir vacilaciones, pero **no garantiza eliminar muletillas, repeticiones ni corregir todos los errores**. Los modelos mayores suelen mejorar la precisión con más consumo de memoria y tiempo de procesamiento. Prueba los modelos con tu voz y vocabulario. Large v3 Turbo (8 bits, 834 MiB) y Large v3 completo (2,9 GiB) se ejecutan localmente: no añaden gasto de API, pero consumen más RAM y tiempo de CPU. Las instalaciones nuevas proponen Turbo; actualizar conserva el modelo elegido anteriormente.
 
-En **Escritura con IA y vocabulario personal** puedes activar la limpieza con DeepSeek e introducir tu clave. El modelo de texto predeterminado es `deepseek-flash`, configurable. El flujo es Whisper → edición de texto → pegado. El editor recibe instrucciones de quitar muletillas, puntuar y formar párrafos o listas cuando corresponda, conservando idioma y significado. Como cualquier LLM, puede equivocarse: la transcripción original permanece accesible desde **Corregir → Ver transcripción original**. Respuestas vacías, truncadas, errores de red y fallos de autenticación hacen que se conserve el texto original.
+En **Escritura con IA y vocabulario personal** puedes activar la limpieza con DeepSeek e introducir tu clave. El modelo de texto predeterminado es `deepseek-flash`, configurable. El flujo es Whisper → edición de texto → pegado. El editor recibe instrucciones de quitar muletillas, puntuar y formar párrafos o listas cuando corresponda, conservando idioma y significado. La corrección conserva explícitamente el spanglish, evita adivinar palabras ambiguas y elimina los caracteres Braille espurios antes y después de la IA. Mantiene una sola llamada al modelo configurado, sin razonamiento; el importe exacto depende de los tokens del dictado y la respuesta. Como cualquier LLM, puede equivocarse: la transcripción original permanece accesible desde **Corregir → Ver transcripción original**. Respuestas vacías, truncadas, errores de red y fallos de autenticación hacen que se conserve el texto original.
 
 **Vocabulario personal:** añade hasta 100 nombres, palabras o expresiones (una por línea). Se utilizan como pistas tanto en Whisper como en el editor de texto. Whisper recibe hasta 600 caracteres de vocabulario para no saturar su contexto; pon los términos prioritarios primero.
 
@@ -39,7 +39,7 @@ Para activar la IA: añade la clave, pulsa **Probar conexión**, marca la limpie
 
 ## Requisitos
 
-Windows 10/11 x64, micrófono y una CPU compatible con el runtime de Whisper distribuido (AVX, AVX2 y FMA). El ejecutable publicado incluye .NET 8. El runtime nativo puede requerir [Microsoft Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). No requiere Python. Solo la limpieza opcional requiere una clave de API. Base y Small ejecutan inferencia en CPU; no se incluye aceleración GPU.
+Windows 10/11 x64, micrófono y una CPU compatible con el runtime de Whisper distribuido (AVX, AVX2 y FMA). El ejecutable publicado incluye .NET 8. El runtime nativo puede requerir [Microsoft Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). No requiere Python. Solo la limpieza opcional requiere una clave de API. Todos los modelos ejecutan inferencia en CPU; no se incluye aceleración GPU.
 
 ## Compilar y publicar
 
