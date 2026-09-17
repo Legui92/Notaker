@@ -124,3 +124,14 @@ Medición local con Ryzen 7 9800X3D, RTX 3050 8 GB y Turbo Q8, usando la misma m
 dotnet run --project tests/Notaker.Tests -c Release -- --benchmark cpu MODELO.bin MUESTRA.wav mixed
 dotnet run --project tests/Notaker.Tests -c Release -- --benchmark vulkan MODELO.bin MUESTRA.wav mixed
 ```
+## Estadísticas (0.7+)
+
+Abre **Estadísticas**, encima de **Buscar actualizaciones**, para ver palabras dictadas, número de dictados y tiempo grabado. La velocidad es palabras reconocidas antes de limpiar / minutos grabados acumulados; incluye las pausas durante la grabación y excluye el procesamiento.
+
+Las correcciones se separan en IA y manuales. Cada palabra insertada, eliminada o sustituida cuenta una vez en la comparación de cada edición; cambios de puntuación o mayúsculas no cuentan como palabras editadas. Un dictado retocado por IA puede tener cero palabras editadas si solo cambió la puntuación. Las correcciones manuales cuentan cada guardado que cambia el texto, incluso si después se vuelve a modificar. No es una medida de precisión del modelo ni detecta cambios en otras aplicaciones.
+
+El diccionario muestra términos aprendidos al corregir, añadidos manualmente y guardados actualmente. Los dos primeros son acumulados desde el inicio del registro, incluso si luego se borran términos. Una frase del vocabulario cuenta como un término. El diccionario aporta pistas a los modelos; no se conoce cuántas correcciones son atribuibles a esas pistas.
+
+Los contadores se guardan en `%LOCALAPPDATA%\Notaker\statistics.json`, sin audio, textos dictados ni términos. No se envían ni consumen API. Son independientes de Guardar historial. **Guardar estadísticas locales** permite pausarlos, y **Reiniciar estadísticas** borra solo los contadores. El reinicio no vuelve a importar el historial.
+
+La primera apertura de 0.7 importa una vez el uso recuperable del historial disponible (hasta 200 dictados). Las correcciones antiguas no se pueden reconstruir: la vista indica desde cuándo se registran. Si el archivo de contadores está dañado se conserva una copia y se muestra un aviso; si falla su escritura, el dictado sigue disponible pero los totales pueden quedar incompletos.

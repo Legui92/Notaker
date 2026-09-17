@@ -66,6 +66,13 @@ public partial class App : System.Windows.Application
                 var updateEncoder = new PngBitmapEncoder(); updateEncoder.Frames.Add(BitmapFrame.Create(updateImage));
                 using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".updates.png"))) updateEncoder.Save(output);
                 updates.Close();
+                var statistics = new StatisticsWindow(new Storage(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data"))) { Owner = window };
+                statistics.Show(); await Task.Delay(200); statistics.UpdateLayout();
+                var statsImage = new RenderTargetBitmap((int)statistics.ActualWidth, (int)statistics.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                statsImage.Render(statistics);
+                var statsEncoder = new PngBitmapEncoder(); statsEncoder.Frames.Add(BitmapFrame.Create(statsImage));
+                using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".statistics.png"))) statsEncoder.Save(output);
+                statistics.Close();
                 await window.ExitAsync();
             }
         }

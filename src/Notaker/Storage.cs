@@ -9,6 +9,7 @@ public sealed record Dictation(string Text, DateTime CreatedAt, double Seconds)
     public string? OriginalText { get; init; }
     public double? RecognitionSeconds { get; init; }
     public double? PolishSeconds { get; init; }
+    public int? AiWordEdits { get; init; }
 }
 
 public sealed class Preferences
@@ -21,6 +22,7 @@ public sealed class Preferences
     public DictationShortcut Shortcut => CustomHotkey is { IsValid: true } ? CustomHotkey : DictationShortcut.FromLegacy(Hotkey);
     public int Microphone { get; set; } = -1;
     public bool KeepHistory { get; set; } = true;
+    public bool TrackStatistics { get; set; } = true;
     public bool AutoPaste { get; set; } = true;
     public bool UseGpu { get; set; } = true;
     public bool CleanWithAi { get; set; }
@@ -37,6 +39,7 @@ public sealed class Storage
     public string ModelPath => Path.Combine(Root, "models", $"ggml-{Settings.Model}.bin");
     public Preferences Settings { get; }
     public List<Dictation> History { get; }
+    public StatisticsStore Statistics { get; }
     public List<string> Vocabulary { get; private set; }
     public string? LoadWarning { get; private set; }
 
@@ -57,6 +60,7 @@ public sealed class Storage
         }
         History = Read<List<Dictation>>("history.json") ?? [];
         Vocabulary = PersonalVocabulary.Normalize(Read<List<string>>("vocabulary.json") ?? []);
+        Statistics = new StatisticsStore(Root, History, Settings.TrackStatistics);
     }
 
     private T? Read<T>(string name)
@@ -81,29 +85,33 @@ public sealed class Storage
     public void SaveSettings() => Write("settings.json", Settings);
     public void Add(Dictation item)
     {
+        if (Settings.TrackStatistics) Statistics.RecordDictation(item);
         if (!Settings.KeepHistory) return;
         History.Insert(0, item);
         if (History.Count > 200) History.RemoveRange(200, History.Count - 200);
         Write("history.json", History);
     }
     public void ClearHistory() { History.Clear(); Write("history.json", History); }
-    public void SaveVocabulary(IEnumerable<string> terms)
+    public void SaveVocabulary(IEnumerable<string> terms, bool learned = false)
     {
         var normalized = PersonalVocabulary.Normalize(terms);
+        var added = normalized.Except(Vocabulary, StringComparer.OrdinalIgnoreCase).Count();
         Write("vocabulary.json", normalized);
         Vocabulary = normalized;
+        if (Settings.TrackStatistics) Statistics.RecordTerms(added, learned);
     }
     public int Correct(Dictation entry, string corrected)
     {
-        var before = Vocabulary.Count;
+        var before = Vocabulary.ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (Settings.LearnVocabulary)
-            SaveVocabulary(PersonalVocabulary.Learn(entry.Text, corrected).Concat(Vocabulary));
+            SaveVocabulary(PersonalVocabulary.Learn(entry.Text, corrected).Concat(Vocabulary), learned: true);
         var index = History.IndexOf(entry);
         if (index >= 0)
         {
             History[index] = entry with { Text = corrected, OriginalText = entry.OriginalText ?? entry.Text };
             Write("history.json", History);
         }
-        return Math.Max(0, Vocabulary.Count - before);
+        if (Settings.TrackStatistics) Statistics.RecordCorrection(entry.Text, corrected);
+        return Vocabulary.Count(term => !before.Contains(term));
     }
 }

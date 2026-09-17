@@ -138,19 +138,20 @@ public partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(text)) { SetStatus("No se obtuvo texto", "Intenta hablar más cerca del micrófono."); await ShowOverlayMessage("Sin texto reconocido"); return; }
             var rawText = text;
             string? polishWarning = null;
+            int? aiWordEdits = null;
             if (storage.Settings.CleanWithAi)
             {
                 overlay.Update("Puliendo tu escritura…", busy: true);
                 SetStatus("Dando forma a tus palabras", "DeepSeek está limpiando muletillas y puntuación, conservando el contenido.");
                 var polishWatch = Stopwatch.StartNew();
-                try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); }
+                try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
                 catch (OperationCanceledException) when (exiting) { throw; }
                 catch (Exception ex) { polishWarning = "Se conservó el texto original. La limpieza con IA falló: " + ex.Message; }
                 finally { polishSeconds = polishWatch.Elapsed.TotalSeconds; }
             }
             if (exiting) return;
             lastText = text;
-            lastDictation = new Dictation(text, DateTime.Now, duration.Elapsed.TotalSeconds) { OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, PolishSeconds = polishSeconds };
+            lastDictation = new Dictation(text, DateTime.Now, duration.Elapsed.TotalSeconds) { OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, PolishSeconds = polishSeconds, AiWordEdits = aiWordEdits };
             string? saveWarning = null;
             try { storage.Add(lastDictation); }
             catch (Exception ex) { saveWarning = "No se pudo guardar el historial: " + ex.Message; }
@@ -314,6 +315,11 @@ public partial class MainWindow : Window
         if (busy || recorder != null) return;
         var dialog = new WritingSettingsWindow(storage) { Owner = this };
         if (dialog.ShowDialog() == true) RefreshStatus();
+    }
+    private void Statistics_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || recorder != null) { SetStatus("Termina el dictado primero", "Las estadísticas estarán disponibles al terminar."); return; }
+        new StatisticsWindow(storage) { Owner = this }.ShowDialog();
     }
     private void Update_Click(object sender, RoutedEventArgs e)
     {
