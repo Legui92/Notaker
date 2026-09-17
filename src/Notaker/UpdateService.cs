@@ -24,28 +24,7 @@ public sealed class UpdateService : IDisposable
         http.Timeout = TimeSpan.FromMinutes(10);
         http.DefaultRequestHeaders.UserAgent.ParseAdd("Notaker/" + VersionLabel);
     }
-    public static async Task<string> GetTokenAsync(string encrypted, CancellationToken token)
-    {
-        if (!string.IsNullOrEmpty(encrypted)) return SecretStore.Unprotect(encrypted);
-        // Reuse the user's existing GitHub CLI session. Never log or persist this token.
-        try
-        {
-            using var process = new Process { StartInfo = new ProcessStartInfo("gh") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true } };
-            process.StartInfo.ArgumentList.Add("auth"); process.StartInfo.ArgumentList.Add("token");
-            process.StartInfo.ArgumentList.Add("--hostname"); process.StartInfo.ArgumentList.Add("github.com");
-            process.Start();
-            var output = process.StandardOutput.ReadToEndAsync(token);
-            var error = process.StandardError.ReadToEndAsync(token);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(8));
-            try { await process.WaitForExitAsync(timeout.Token); }
-            catch { if (!process.HasExited) process.Kill(); throw; }
-            await error;
-            return process.ExitCode == 0 ? (await output).Trim() : "";
-        }
-        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-        catch { return ""; }
-    }
-    private static HttpRequestMessage Request(string url, string key, bool binary = false)
+    private static HttpRequestMessage Request(string url, bool binary = false)
     {
         var uri = new Uri(url);
         if (uri.Scheme != "https" || uri.Host != "api.github.com" || !uri.AbsolutePath.StartsWith("/repos/" + Repository + "/", StringComparison.Ordinal))
@@ -53,15 +32,18 @@ public sealed class UpdateService : IDisposable
         var request = new HttpRequestMessage(HttpMethod.Get, uri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(binary ? "application/octet-stream" : "application/vnd.github+json"));
         request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
-        if (key.Length > 0) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
         return request;
     }
-    public async Task<AvailableUpdate?> CheckAsync(string key, CancellationToken token, Version? installedVersion = null)
+    public async Task<AvailableUpdate?> CheckAsync(CancellationToken token, Version? installedVersion = null)
     {
-        using var request = Request(ApiRoot + "/releases?per_page=30", key);
+        using var request = Request(ApiRoot + "/releases?per_page=30");
         using var response = await http.SendAsync(request, token);
-        if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.NotFound)
-            throw new InvalidOperationException("GitHub no permite consultar este repositorio privado. Inicia sesión con gh auth login o guarda un token con acceso de lectura a Contents de Legui92/Notaker. También puede haberse agotado el límite de GitHub.");
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            throw new InvalidOperationException("No se encontraron las publicaciones públicas de Notaker en GitHub. Vuelve a intentarlo más tarde.");
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+            throw new InvalidOperationException("GitHub limitó temporalmente las consultas. Espera unos minutos y vuelve a intentarlo. No necesitas un token.");
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+            throw new InvalidOperationException("GitHub rechazó la consulta pública. Vuelve a intentarlo más tarde; Notaker no solicita credenciales.");
         response.EnsureSuccessStatusCode();
         return ParseRelease(await response.Content.ReadAsStringAsync(token), installedVersion ?? CurrentVersion);
     }
@@ -82,7 +64,7 @@ public sealed class UpdateService : IDisposable
             if (digest == null || !digest.StartsWith("sha256:") || !IsHash(digest[7..]))
                 throw new InvalidDataException("La versión publicada no incluye una huella SHA-256 válida de GitHub.");
             var url = asset.GetProperty("url").GetString()!;
-            using var validate = Request(url, "", true);
+            using var validate = Request(url, true);
             var size = asset.GetProperty("size").GetInt64();
             if (size is < 1_000_000 or > 500_000_000) throw new InvalidDataException("Tamaño de actualización inesperado.");
             return new AvailableUpdate(newest.Version!, url, digest[7..], size);
@@ -96,11 +78,11 @@ public sealed class UpdateService : IDisposable
         return Version.TryParse(value, out var version) && version.Build >= 0 && version.Revision < 0 ? version : null;
     }
     internal static bool IsHash(string hash) => hash.Length == 64 && hash.All(Uri.IsHexDigit);
-    public async Task<string> DownloadAsync(AvailableUpdate update, string key, string directory, IProgress<double> progress, CancellationToken token)
+    public async Task<string> DownloadAsync(AvailableUpdate update, string directory, IProgress<double> progress, CancellationToken token)
     {
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "Notaker.exe");
-        using var request = Request(update.AssetUrl, key, true);
+        using var request = Request(update.AssetUrl, true);
         var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         try
         {
@@ -111,7 +93,7 @@ public sealed class UpdateService : IDisposable
                     !(location.Host == "release-assets.githubusercontent.com" || location.Host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidDataException("Redirección de descarga no válida.");
                 response.Dispose();
-                // Signed asset URL: do not forward the GitHub credential to the CDN.
+                // Follow only the trusted HTTPS asset redirect; all requests are anonymous.
                 response = await http.GetAsync(location, HttpCompletionOption.ResponseHeadersRead, token);
             }
             response.EnsureSuccessStatusCode();

@@ -33,12 +33,40 @@ internal static class UpdateChecks
             catch (InvalidDataException) { Check(true, "Updater rejects corrupted download before installation"); }
         }
         finally { File.Delete(file); }
-        using var service = new UpdateService(new StubHttp((request, _) =>
+        using (var service = new UpdateService(new StubHttp((request, _) =>
         {
-            Check(request.Headers.Authorization?.Parameter == "test-github-token", "Private repository request uses authentication");
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        }));
-        try { await service.CheckAsync("test-github-token", CancellationToken.None); throw new Exception("Private repo error ignored"); }
-        catch (InvalidOperationException ex) { Check(ex.Message.Contains("privado"), "Private repository access failure is actionable"); }
+            Check(request.Headers.Authorization == null, "Public update check sends no credentials");
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Releases("v0.4.0")) };
+        })))
+            Check(await service.CheckAsync(CancellationToken.None, new Version(0, 3, 0)) != null, "Public update discovery works anonymously");
+        foreach (var status in new[] { HttpStatusCode.NotFound, HttpStatusCode.Forbidden, HttpStatusCode.TooManyRequests, HttpStatusCode.Unauthorized })
+        {
+            using var service = new UpdateService(new StubHttp((_, _) => new HttpResponseMessage(status)));
+            try { await service.CheckAsync(CancellationToken.None); throw new Exception("HTTP error ignored"); }
+            catch (InvalidOperationException ex) { Check(!ex.Message.Contains("guarda un token") && !ex.Message.Contains("gh auth"), "Public access error does not ask for credentials: " + status); }
+        }
+        var requests = 0;
+        using (var service = new UpdateService(new StubHttp((request, _) =>
+        {
+            Check(request.Headers.Authorization == null, "Asset download sends no credentials, including CDN redirects");
+            requests++;
+            if (requests == 1)
+            {
+                var redirect = new HttpResponseMessage(HttpStatusCode.Found);
+                redirect.Headers.Location = new Uri("https://release-assets.githubusercontent.com/test-asset");
+                return redirect;
+            }
+            return new HttpResponseMessage(HttpStatusCode.BadRequest);
+        })))
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "Notaker-public-download-" + Guid.NewGuid());
+            try
+            {
+                await service.DownloadAsync(new AvailableUpdate(new Version(0, 4, 0), asset.url, digest, 73_000_000), dir, new Progress<double>(), CancellationToken.None);
+                throw new Exception("Invalid download accepted");
+            }
+            catch (HttpRequestException) { Check(requests == 2, "Public asset follows trusted CDN redirect"); }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir); }
+        }
     }
 }
