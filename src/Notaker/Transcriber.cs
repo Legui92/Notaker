@@ -22,16 +22,20 @@ public sealed class Transcriber : IDisposable
     }
     private WhisperFactory? factory;
     private string? loadedModel;
-    public static bool ModelExists(string path) => File.Exists(path) && new FileInfo(path).Length > 100_000_000;
+    public static bool ModelExists(string path)
+    {
+        var model = VoiceModels.All.FirstOrDefault(m => Path.GetFileName(path) == $"ggml-{m.Id}.bin");
+        return File.Exists(path) && new FileInfo(path).Length >= (model?.MinimumBytes ?? 100_000_000);
+    }
 
     public static async Task DownloadModelAsync(string path, string model, IProgress<double> progress, CancellationToken token)
     {
-        if (model is not ("base" or "small")) throw new ArgumentException("Modelo no admitido.", nameof(model));
+        if (!VoiceModels.IsSupported(model)) throw new ArgumentException("Modelo no admitido.", nameof(model));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temp = path + ".download";
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(20) };
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(60) };
             using var response = await http.GetAsync($"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{model}.bin", HttpCompletionOption.ResponseHeadersRead, token);
             response.EnsureSuccessStatusCode();
             var length = response.Content.Headers.ContentLength;
@@ -47,7 +51,7 @@ public sealed class Transcriber : IDisposable
                     total += read;
                     progress.Report(length > 0 ? total * 100.0 / length.Value : -1);
                 }
-                if (total < 100_000_000 || (length.HasValue && total != length.Value))
+                if (total < VoiceModels.Get(model).MinimumBytes || (length.HasValue && total != length.Value))
                     throw new IOException("La descarga del modelo está incompleta. Vuelve a intentarlo.");
             }
             // Validate with the native reader before making the download available.
@@ -61,8 +65,11 @@ public sealed class Transcriber : IDisposable
     {
         if (loadedModel != model) { factory?.Dispose(); factory = null; loadedModel = model; }
         factory ??= WhisperFactory.FromPath(model);
-        var builder = factory.CreateBuilder().WithLanguage(language);
-        if (!string.IsNullOrWhiteSpace(vocabulary)) builder.WithPrompt(vocabulary);
+        var builder = factory.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
+            .WithTemperature(0);
+        builder.WithBeamSearchSamplingStrategy();
+        var prompt = language == "mixed" ? "Español e inglés. Spanish and English. " + vocabulary : vocabulary;
+        if (!string.IsNullOrWhiteSpace(prompt)) builder.WithPrompt(prompt);
         using var processor = builder.Build();
         using var stream = new MemoryStream(wav);
         var text = new StringBuilder();
@@ -71,7 +78,7 @@ public sealed class Transcriber : IDisposable
             var part = segment.Text.Trim();
             if (part.Length > 0) { if (text.Length > 0) text.Append(' '); text.Append(part); }
         }
-        return text.ToString().Trim();
+        return DictationText.CleanArtifacts(text.ToString());
     }, token);
 
     public void Dispose() => factory?.Dispose();

@@ -12,7 +12,7 @@ public sealed record Dictation(string Text, DateTime CreatedAt, double Seconds)
 public sealed class Preferences
 {
     public string Language { get; set; } = "auto";
-    public string Model { get; set; } = "base";
+    public string Model { get; set; } = "large-v3-turbo-q8_0";
     public int Hotkey { get; set; }
     public DictationShortcut? CustomHotkey { get; set; }
     [System.Text.Json.Serialization.JsonIgnore]
@@ -41,8 +41,8 @@ public sealed class Storage
         Root = root ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Notaker");
         Directory.CreateDirectory(Path.Combine(Root, "models"));
         Settings = Read<Preferences>("settings.json") ?? new();
-        if (Settings.Language is not ("auto" or "es" or "en")) Settings.Language = "auto";
-        if (Settings.Model is not ("base" or "small")) Settings.Model = "base";
+        if (Settings.Language is not ("auto" or "es" or "en" or "mixed")) Settings.Language = "auto";
+        if (!VoiceModels.IsSupported(Settings.Model)) Settings.Model = "base";
         Settings.Hotkey = Math.Clamp(Settings.Hotkey, 0, 2);
         History = Read<List<Dictation>>("history.json") ?? [];
         Vocabulary = PersonalVocabulary.Normalize(Read<List<string>>("vocabulary.json") ?? []);
