@@ -165,6 +165,7 @@ try
         try { await engine.TranscribeAsync(args[0], [], "es", cancelled.Token); throw new Exception("Expected cancellation"); }
         catch (OperationCanceledException) { Check(true, "Cancelled transcription does not start inference"); }
     }
+    StatisticsChecks.Run(root);
     await UpdateChecks.RunAsync();
     if (args.Length == 2 && args[0] == "--live-update")
     {

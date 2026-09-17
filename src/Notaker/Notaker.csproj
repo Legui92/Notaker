@@ -10,7 +10,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>0.6.0</Version>
+    <Version>0.7.0</Version>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <!-- WPF owns DPI awareness; WinForms is used only for the notification icon. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>

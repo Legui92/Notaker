@@ -1,0 +1,37 @@
+<Window x:Class="Notaker.StatisticsWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Notaker · Estadísticas" Style="{StaticResource {x:Type Window}}" Width="900" Height="810" MinWidth="750" MinHeight="600" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+ <Window.Resources>
+  <Style x:Key="Card" TargetType="Border"><Setter Property="Background" Value="{StaticResource Surface}"/><Setter Property="CornerRadius" Value="14"/><Setter Property="Padding" Value="20"/><Setter Property="Margin" Value="5"/></Style>
+  <Style x:Key="Label" TargetType="TextBlock"><Setter Property="Foreground" Value="{StaticResource Muted}"/><Setter Property="FontSize" Value="11"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+  <Style x:Key="Value" TargetType="TextBlock"><Setter Property="FontSize" Value="34"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,8,0,5"/></Style>
+ </Window.Resources>
+ <ScrollViewer VerticalScrollBarVisibility="Auto">
+  <StackPanel Margin="28">
+   <TextBlock Text="TU ACTIVIDAD EN NOTAKER" Foreground="{StaticResource Accent}" FontSize="11" FontWeight="SemiBold"/>
+   <TextBlock Text="Tu voz, en números." FontSize="30" FontWeight="SemiBold" Margin="0,8,0,6"/>
+   <TextBlock Text="Totales acumulados en este equipo. Sin enviar datos ni hacer llamadas de IA." Style="{StaticResource Label}" Margin="0,0,0,18"/>
+   <UniformGrid Columns="3">
+    <Border Style="{StaticResource Card}" Background="{StaticResource HeroGradient}"><StackPanel><TextBlock Text="PALABRAS DICTADAS" Style="{StaticResource Label}"/><TextBlock x:Name="WordsValue" Style="{StaticResource Value}"/><TextBlock Text="Reconocidas antes de la limpieza" Style="{StaticResource Label}"/></StackPanel></Border>
+    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="RITMO DE DICTADO" Style="{StaticResource Label}"/><TextBlock x:Name="PaceValue" Style="{StaticResource Value}"/><TextBlock Text="Palabras / minuto grabado" Style="{StaticResource Label}"/></StackPanel></Border>
+    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="TIEMPO DICTANDO" Style="{StaticResource Label}"/><TextBlock x:Name="TimeValue" Style="{StaticResource Value}"/><TextBlock Text="Incluye pausas; excluye procesamiento" Style="{StaticResource Label}"/></StackPanel></Border>
+    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="DICTADOS COMPLETADOS" Style="{StaticResource Label}"/><TextBlock x:Name="DictationsValue" Style="{StaticResource Value}"/><TextBlock Text="Con texto reconocido" Style="{StaticResource Label}"/></StackPanel></Border>
+    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="PALABRAS EDITADAS POR IA" Style="{StaticResource Label}"/><TextBlock x:Name="AiValue" Style="{StaticResource Value}"/><TextBlock x:Name="AiDetail" Style="{StaticResource Label}"/></StackPanel></Border>
+    <Border Style="{StaticResource Card}"><StackPanel><TextBlock Text="PALABRAS EDITADAS POR TI" Style="{StaticResource Label}"/><TextBlock x:Name="ManualValue" Style="{StaticResource Value}"/><TextBlock x:Name="ManualDetail" Style="{StaticResource Label}"/></StackPanel></Border>
+   </UniformGrid>
+   <Border Style="{StaticResource Card}" Margin="5,14,5,12"><StackPanel>
+    <TextBlock Text="TU DICCIONARIO PERSONAL" FontSize="11" Foreground="{StaticResource Accent}" FontWeight="SemiBold"/>
+    <UniformGrid Columns="3" Margin="0,10,0,10">
+     <StackPanel><TextBlock x:Name="LearnedValue" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Términos aprendidos al corregir" Style="{StaticResource Label}"/></StackPanel>
+     <StackPanel><TextBlock x:Name="AddedValue" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Términos añadidos manualmente" Style="{StaticResource Label}"/></StackPanel>
+     <StackPanel><TextBlock x:Name="VocabularyValue" FontSize="25" FontWeight="SemiBold"/><TextBlock Text="Términos guardados actualmente" Style="{StaticResource Label}"/></StackPanel>
+    </UniformGrid>
+    <TextBlock Text="El diccionario aporta pistas. No se puede atribuir automáticamente a él cada palabra corregida." Style="{StaticResource Label}"/>
+   </StackPanel></Border>
+   <TextBlock x:Name="CoverageText" Style="{StaticResource Label}" Margin="5,0,5,7"/>
+   <TextBlock Text="Una palabra añadida, quitada o sustituida cuenta como una edición. Puntuación y mayúsculas no suman palabras editadas. Cada corrección guardada cuenta por separado; no mide la precisión del reconocimiento." Style="{StaticResource Label}" Margin="5,0,5,10"/>
+   <TextBlock x:Name="WarningText" Foreground="#F1C879" TextWrapping="Wrap" Margin="5,0,5,10"/>
+   <CheckBox x:Name="TrackBox" Content="Guardar estadísticas locales (sin textos ni audio)" Click="Track_Click" Margin="5,0,0,6"/>
+   <TextBlock Text="Borrar el historial no borra estos totales. Puedes pausar el registro o reiniciar solo los contadores." Style="{StaticResource Label}" Margin="5,0,5,14"/>
+   <DockPanel Margin="5,0"><Button Content="Cerrar" Click="Close_Click" DockPanel.Dock="Right" HorizontalAlignment="Right" Background="#7857EC"/><Button Content="Reiniciar estadísticas" Click="Reset_Click" HorizontalAlignment="Left" Background="Transparent"/></DockPanel>
+  </StackPanel>
+ </ScrollViewer>
+</Window>

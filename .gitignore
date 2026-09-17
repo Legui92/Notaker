@@ -18,3 +18,5 @@ vocabulary.json
 *.pem
 *.key
 secrets/
+statistics.json
+.memory-pending/
