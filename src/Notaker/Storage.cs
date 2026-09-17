@@ -5,8 +5,10 @@ namespace Notaker;
 
 public sealed record Dictation(string Text, DateTime CreatedAt, double Seconds)
 {
-    public string Caption => $"{CreatedAt:dd MMM · HH:mm}   /   {Seconds:0} s";
+    public string Caption => $"{CreatedAt:dd MMM · HH:mm}   /   {Seconds:0} s" + (RecognitionSeconds is double voice ? $" · Voz {voice:0.0} s" : "") + (PolishSeconds is double ai ? $" · IA {ai:0.0} s" : "");
     public string? OriginalText { get; init; }
+    public double? RecognitionSeconds { get; init; }
+    public double? PolishSeconds { get; init; }
 }
 
 public sealed class Preferences
@@ -20,6 +22,7 @@ public sealed class Preferences
     public int Microphone { get; set; } = -1;
     public bool KeepHistory { get; set; } = true;
     public bool AutoPaste { get; set; } = true;
+    public bool UseGpu { get; set; } = true;
     public bool CleanWithAi { get; set; }
     public bool LearnVocabulary { get; set; } = true;
     public string ApiModel { get; set; } = "deepseek-flash";

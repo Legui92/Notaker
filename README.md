@@ -39,7 +39,7 @@ Para activar la IA: añade la clave, pulsa **Probar conexión**, marca la limpie
 
 ## Requisitos
 
-Windows 10/11 x64, micrófono y una CPU compatible con el runtime de Whisper distribuido (AVX, AVX2 y FMA). El ejecutable publicado incluye .NET 8. El runtime nativo puede requerir [Microsoft Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). No requiere Python. Solo la limpieza opcional requiere una clave de API. Todos los modelos ejecutan inferencia en CPU; no se incluye aceleración GPU.
+Windows 10/11 x64, micrófono y una CPU compatible con el runtime de Whisper distribuido (AVX, AVX2 y FMA). El ejecutable publicado incluye .NET 8. El runtime nativo puede requerir [Microsoft Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe). No requiere Python. Solo la limpieza opcional requiere una clave de API. Desde 0.5 se incluye aceleración GPU mediante Vulkan, activada por defecto. Requiere una GPU y un controlador compatibles; el runtime CPU sigue incluido. Puedes desactivar **Acelerar con GPU compatible** para usar CPU. No hace falta instalar CUDA ni cambiar el modelo descargado. El primer dictado puede tardar más por la inicialización del motor; los posteriores reutilizan el modelo cargado.
 
 ## Compilar y publicar
 
@@ -112,3 +112,15 @@ Para pasar desde 0.1/0.2 se necesita abrir el nuevo `Notaker.exe` una vez: esas 
 La publicación crea una release estable y un tag apuntando al commit actual. No cambia ni fusiona `main`. Una rama subida sin release no activa actualizaciones. El script no reemplaza versiones existentes.
 
 Las pruebas de integración del actualizador usan copias en `artifacts/qa`, no la aplicación del Escritorio. La comprobación de una release privada real se ejecuta con `dotnet run --project tests/Notaker.Tests -c Release -- --live-update artifacts/qa/live-download` y requiere acceso de GitHub.
+
+
+## Tiempo de respuesta (0.5+)
+
+El historial muestra por separado **Voz** (carga del modelo y reconocimiento) e **IA** (limpieza en DeepSeek, si está activa). Estos tiempos no incluyen el pegado. La aceleración conserva el modelo, el contexto bilingüe y la búsqueda de haces; no añade llamadas a la API. Los resultados pueden variar ligeramente por la aritmética del backend.
+
+Medición local con Ryzen 7 9800X3D, RTX 3050 8 GB y Turbo Q8, usando la misma muestra sintética bilingüe: CPU 22,0–22,4 s; Vulkan 7,6 s en la primera ejecución y 1,3 s en las dos siguientes. El texto coincidió. No incluye DeepSeek y no es una garantía para otros audios o equipos. Puede reproducirse con:
+
+```powershell
+dotnet run --project tests/Notaker.Tests -c Release -- --benchmark cpu MODELO.bin MUESTRA.wav mixed
+dotnet run --project tests/Notaker.Tests -c Release -- --benchmark vulkan MODELO.bin MUESTRA.wav mixed
+```

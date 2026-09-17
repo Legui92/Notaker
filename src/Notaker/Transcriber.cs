@@ -22,6 +22,7 @@ public sealed class Transcriber : IDisposable
     }
     private WhisperFactory? factory;
     private string? loadedModel;
+    private bool loadedUseGpu;
     public static bool ModelExists(string path)
     {
         var model = VoiceModels.All.FirstOrDefault(m => Path.GetFileName(path) == $"ggml-{m.Id}.bin");
@@ -55,16 +56,16 @@ public sealed class Transcriber : IDisposable
                     throw new IOException("La descarga del modelo está incompleta. Vuelve a intentarlo.");
             }
             // Validate with the native reader before making the download available.
-            using (WhisperFactory.FromPath(temp)) { }
+            using (WhisperFactory.FromPath(temp, new WhisperFactoryOptions { UseGpu = false })) { }
             File.Move(temp, path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
     }
 
-    public Task<string> TranscribeAsync(string model, byte[] wav, string language, CancellationToken token, string? vocabulary = null) => Task.Run(async () =>
+    public Task<string> TranscribeAsync(string model, byte[] wav, string language, CancellationToken token, string? vocabulary = null, bool useGpu = true) => Task.Run(async () =>
     {
-        if (loadedModel != model) { factory?.Dispose(); factory = null; loadedModel = model; }
-        factory ??= WhisperFactory.FromPath(model);
+        if (loadedModel != model || loadedUseGpu != useGpu) { factory?.Dispose(); factory = null; loadedModel = model; loadedUseGpu = useGpu; }
+        factory ??= WhisperFactory.FromPath(model, new WhisperFactoryOptions { UseGpu = useGpu });
         var builder = factory.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
             .WithTemperature(0);
         builder.WithBeamSearchSamplingStrategy();
