@@ -11,8 +11,22 @@ public partial class App : System.Windows.Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => { if (sender is Window window) Native.DarkCaption(window); }));
         try
         {
+            if (e.Args.Length == 2 && e.Args[0] == "--apply-update")
+            {
+                await UpdateInstaller.ApplyAsync(e.Args[1]); Shutdown(0); return;
+            }
+            if (e.Args.Length == 3 && e.Args[0] == "--update-confirm" && e.Args[2] == "--update-test-fail")
+            {
+                Shutdown(1); return;
+            }
+            if (e.Args.Length == 3 && e.Args[0] == "--update-confirm" && e.Args[2] == "--update-test")
+            {
+                await File.WriteAllTextAsync(e.Args[1], UpdateService.VersionLabel); Shutdown(0); return;
+            }
             if (e.Args.Length >= 4 && e.Args[0] == "--transcribe")
             {
                 using var engine = new Transcriber();
@@ -26,6 +40,8 @@ public partial class App : System.Windows.Application
             var window = new MainWindow(smoke ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data") : null);
             MainWindow = window;
             window.Show();
+            if (e.Args.Length == 2 && e.Args[0] == "--update-confirm")
+                await File.WriteAllTextAsync(e.Args[1], UpdateService.VersionLabel);
             if (smoke)
             {
                 await Task.Delay(600);
@@ -43,6 +59,13 @@ public partial class App : System.Windows.Application
                 var settingsEncoder = new PngBitmapEncoder(); settingsEncoder.Frames.Add(BitmapFrame.Create(settingsImage));
                 using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".settings.png"))) settingsEncoder.Save(output);
                 settings.Close();
+                var updates = new UpdateWindow(new Storage(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data")), () => Task.CompletedTask) { Owner = window };
+                updates.Show(); await Task.Delay(200); updates.UpdateLayout();
+                var updateImage = new RenderTargetBitmap((int)updates.ActualWidth, (int)updates.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                updateImage.Render(updates);
+                var updateEncoder = new PngBitmapEncoder(); updateEncoder.Frames.Add(BitmapFrame.Create(updateImage));
+                using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".updates.png"))) updateEncoder.Save(output);
+                updates.Close();
                 await window.ExitAsync();
             }
         }

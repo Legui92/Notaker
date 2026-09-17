@@ -24,6 +24,7 @@ public sealed class Preferences
     public bool LearnVocabulary { get; set; } = true;
     public string ApiModel { get; set; } = "deepseek-flash";
     public string ProtectedApiKey { get; set; } = "";
+    public string ProtectedGitHubToken { get; set; } = "";
 }
 
 public sealed class Storage

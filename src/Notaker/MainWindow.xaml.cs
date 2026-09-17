@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     {
         storage = new Storage(dataRoot);
         InitializeComponent();
+        AppVersionLabel.Text = "NOTAKER / WINDOWS · " + UpdateService.VersionLabel;
         LanguageBox.SelectedIndex = storage.Settings.Language == "es" ? 1 : storage.Settings.Language == "en" ? 2 : 0;
         ModelBox.SelectedIndex = storage.Settings.Model == "small" ? 1 : 0;
         HotkeyBox.Text = storage.Settings.Shortcut.DisplayName;
@@ -299,6 +300,11 @@ public partial class MainWindow : Window
         if (busy || recorder != null) return;
         var dialog = new WritingSettingsWindow(storage) { Owner = this };
         if (dialog.ShowDialog() == true) RefreshStatus();
+    }
+    private void Update_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || recorder != null) { SetStatus("Termina el dictado primero", "Puedes actualizar cuando no haya una grabación o transcripción en curso."); return; }
+        new UpdateWindow(storage, ExitAsync) { Owner = this }.ShowDialog();
     }
     private void Correct_Click(object sender, RoutedEventArgs e)
     {
