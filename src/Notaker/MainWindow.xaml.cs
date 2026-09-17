@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         for (int i = 0; i < WaveIn.DeviceCount; i++) MicrophoneBox.Items.Add(WaveIn.GetCapabilities(i).ProductName);
         MicrophoneBox.SelectedIndex = Math.Clamp(storage.Settings.Microphone + 1, 0, MicrophoneBox.Items.Count - 1);
         storage.Settings.Microphone = MicrophoneBox.SelectedIndex - 1;
+        GpuBox.IsChecked = storage.Settings.UseGpu;
         PasteBox.IsChecked = storage.Settings.AutoPaste;
         HistoryBox.IsChecked = storage.Settings.KeepHistory;
         tray = new Forms.NotifyIcon { Text = "Notaker · Dictado", Icon = System.Drawing.SystemIcons.Application, Visible = true };
@@ -129,7 +130,10 @@ public partial class MainWindow : Window
                 SetStatus("No se detectó voz", "Comprueba el micrófono seleccionado y vuelve a intentarlo.");
                 await ShowOverlayMessage("No se detectó voz"); return;
             }
-            var text = await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, lifetime.Token, PersonalVocabulary.Prompt(storage.Vocabulary));
+            var recognitionWatch = Stopwatch.StartNew();
+            var text = await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, lifetime.Token, PersonalVocabulary.Prompt(storage.Vocabulary), storage.Settings.UseGpu);
+            recognitionWatch.Stop();
+            double? polishSeconds = null;
             if (exiting) return;
             if (string.IsNullOrWhiteSpace(text)) { SetStatus("No se obtuvo texto", "Intenta hablar más cerca del micrófono."); await ShowOverlayMessage("Sin texto reconocido"); return; }
             var rawText = text;
@@ -138,13 +142,15 @@ public partial class MainWindow : Window
             {
                 overlay.Update("Puliendo tu escritura…", busy: true);
                 SetStatus("Dando forma a tus palabras", "DeepSeek está limpiando muletillas y puntuación, conservando el contenido.");
+                var polishWatch = Stopwatch.StartNew();
                 try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); }
                 catch (OperationCanceledException) when (exiting) { throw; }
                 catch (Exception ex) { polishWarning = "Se conservó el texto original. La limpieza con IA falló: " + ex.Message; }
+                finally { polishSeconds = polishWatch.Elapsed.TotalSeconds; }
             }
             if (exiting) return;
             lastText = text;
-            lastDictation = new Dictation(text, DateTime.Now, duration.Elapsed.TotalSeconds) { OriginalText = rawText };
+            lastDictation = new Dictation(text, DateTime.Now, duration.Elapsed.TotalSeconds) { OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, PolishSeconds = polishSeconds };
             string? saveWarning = null;
             try { storage.Add(lastDictation); }
             catch (Exception ex) { saveWarning = "No se pudo guardar el historial: " + ex.Message; }
@@ -204,6 +210,11 @@ public partial class MainWindow : Window
         if (!ready) return;
         storage.Settings.Language = LanguageBox.SelectedIndex == 3 ? "mixed" : LanguageBox.SelectedIndex == 1 ? "es" : LanguageBox.SelectedIndex == 2 ? "en" : "auto";
         storage.Settings.Microphone = MicrophoneBox.SelectedIndex - 1; SavePreferences();
+    }
+    private void Gpu_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!ready) return;
+        storage.Settings.UseGpu = GpuBox.IsChecked == true; SavePreferences();
     }
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {
