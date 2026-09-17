@@ -98,7 +98,7 @@ Antes de distribuir: probar voz real en los dos idiomas, inicio/parada por atajo
 
 Abre **Buscar actualizaciones** en la barra lateral. Si hay una versión estable nueva, pulsa **Actualizar y reiniciar**. La aplicación descarga `Notaker.exe` desde las releases de `Legui92/Notaker`, verifica tamaño, SHA-256 publicado por GitHub y versión del archivo, cierra el proceso actual, reemplaza el ejecutable y lo vuelve a abrir. Si no confirma el inicio en 30 segundos, restaura el ejecutable anterior. Los datos de `%LOCALAPPDATA%\Notaker` se conservan. La carpeta que contiene el ejecutable debe permitir escritura.
 
-El repositorio es privado: el actualizador reutiliza `gh auth login` si GitHub CLI está instalado. Alternativamente, puedes introducir en esa ventana un token de GitHub con acceso al repositorio y permiso **Contents: Read-only**. Se guarda protegido con DPAPI. La clave de DeepSeek no sirve para GitHub. Las credenciales nunca se incluyen en el ejecutable ni se envían al CDN que entrega el archivo.
+Desde **0.6**, las actualizaciones son públicas y anónimas: no necesitas una cuenta, GitHub CLI ni un token. Notaker no lee credenciales de GitHub. El acceso antiguo guardado se elimina al cargar los ajustes, conservando la clave de DeepSeek. Si una versión anterior falla por un token obsoleto, abre una vez el EXE de la release 0.6 o posterior; los datos se conservan.
 
 Para pasar desde 0.1/0.2 se necesita abrir el nuevo `Notaker.exe` una vez: esas versiones no tienen actualizador. No hay que extraer un ZIP. Cierra la versión anterior desde la bandeja, reemplaza el EXE y ábrelo. A partir de 0.3 se usa el botón interno.
 
@@ -111,7 +111,7 @@ Para pasar desde 0.1/0.2 se necesita abrir el nuevo `Notaker.exe` una vez: esas 
 
 La publicación crea una release estable y un tag apuntando al commit actual. No cambia ni fusiona `main`. Una rama subida sin release no activa actualizaciones. El script no reemplaza versiones existentes.
 
-Las pruebas de integración del actualizador usan copias en `artifacts/qa`, no la aplicación del Escritorio. La comprobación de una release privada real se ejecuta con `dotnet run --project tests/Notaker.Tests -c Release -- --live-update artifacts/qa/live-download` y requiere acceso de GitHub.
+Las pruebas de integración del actualizador usan copias en `artifacts/qa`, no la aplicación del Escritorio. La comprobación de una release pública real se ejecuta con `dotnet run --project tests/Notaker.Tests -c Release -- --live-update artifacts/qa/live-download`, sin autenticación.
 
 
 ## Tiempo de respuesta (0.5+)

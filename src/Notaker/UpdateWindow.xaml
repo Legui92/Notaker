@@ -1,13 +1,10 @@
-<Window x:Class="Notaker.UpdateWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Notaker · Actualizaciones" Width="560" Height="560" ResizeMode="NoResize" Style="{StaticResource {x:Type Window}}" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+<Window x:Class="Notaker.UpdateWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Notaker · Actualizaciones" Width="560" Height="400" ResizeMode="NoResize" Style="{StaticResource {x:Type Window}}" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
  <StackPanel Margin="28">
   <TextBlock Text="Siempre al día" FontSize="28" FontWeight="SemiBold"/>
   <TextBlock x:Name="VersionText" Foreground="{StaticResource Muted}" Margin="0,9,0,20"/>
   <Border Background="#1E1B38" CornerRadius="12" Padding="18"><TextBlock x:Name="Status" Text="Busca una nueva versión. Tus modelos, claves y dictados se conservan." TextWrapping="Wrap" FontSize="14"/></Border>
   <ProgressBar x:Name="Progress" Height="5" Margin="0,14,0,8" Visibility="Collapsed"/>
-  <TextBlock Text="ACCESO A GITHUB" FontSize="10" Margin="0,20,0,9" FontWeight="SemiBold"/>
-  <TextBlock Text="El repositorio es privado. Usamos tu sesión de GitHub CLI si está disponible. También puedes guardar un token de GitHub con permiso Contents: Read-only para Legui92/Notaker." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12"/>
-  <PasswordBox x:Name="TokenBox" Padding="10" Margin="0,12,0,8" AutomationProperties.Name="Token de GitHub para actualizaciones"/>
-  <DockPanel><Button Content="Guardar acceso" Click="SaveToken_Click" DockPanel.Dock="Right" Padding="12,7"/><Button Content="Quitar token" Click="ClearToken_Click" DockPanel.Dock="Right" Margin="0,0,8,0" Padding="12,7"/><TextBlock x:Name="TokenState" FontSize="11" Foreground="{StaticResource Muted}" VerticalAlignment="Center"/></DockPanel>
+  <TextBlock Text="Actualizaciones públicas desde GitHub. No necesitas cuenta ni token de acceso." Foreground="{StaticResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,20,0,0"/>
   <TextBlock Text="La actualización descarga el ejecutable, verifica su integridad y reinicia Notaker. Si no consigue iniciar, restaura la versión anterior." TextWrapping="Wrap" Foreground="{StaticResource Muted}" FontSize="12" Margin="0,20,0,20"/>
   <Button x:Name="ActionButton" Content="Buscar actualizaciones" Background="#7857EC" Click="Action_Click" HorizontalAlignment="Right"/>
  </StackPanel>
