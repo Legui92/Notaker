@@ -93,3 +93,22 @@ Antes de distribuir: probar voz real en los dos idiomas, inicio/parada por atajo
 
 - [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion/)
 
+
+## Actualizar desde Notaker (0.3+)
+
+Abre **Buscar actualizaciones** en la barra lateral. Si hay una versión estable nueva, pulsa **Actualizar y reiniciar**. La aplicación descarga `Notaker.exe` desde las releases de `Legui92/Notaker`, verifica tamaño, SHA-256 publicado por GitHub y versión del archivo, cierra el proceso actual, reemplaza el ejecutable y lo vuelve a abrir. Si no confirma el inicio en 30 segundos, restaura el ejecutable anterior. Los datos de `%LOCALAPPDATA%\Notaker` se conservan. La carpeta que contiene el ejecutable debe permitir escritura.
+
+El repositorio es privado: el actualizador reutiliza `gh auth login` si GitHub CLI está instalado. Alternativamente, puedes introducir en esa ventana un token de GitHub con acceso al repositorio y permiso **Contents: Read-only**. Se guarda protegido con DPAPI. La clave de DeepSeek no sirve para GitHub. Las credenciales nunca se incluyen en el ejecutable ni se envían al CDN que entrega el archivo.
+
+Para pasar desde 0.1/0.2 se necesita abrir el nuevo `Notaker.exe` una vez: esas versiones no tienen actualizador. No hay que extraer un ZIP. Cierra la versión anterior desde la bandeja, reemplaza el EXE y ábrelo. A partir de 0.3 se usa el botón interno.
+
+### Publicar una versión futura
+
+1. Incrementa `<Version>` en `src/Notaker/Notaker.csproj` y actualiza las notas en `docs/releases`.
+2. Compila y verifica las pruebas. Ejecuta `scripts/test-update.ps1` sobre el ejecutable publicado para comprobar sustitución y recuperación con archivos aislados.
+3. Crea un commit y sube la rama.
+4. Ejecuta `./scripts/release.ps1 -NotesPath docs/releases/vX.Y.Z.md` con GitHub CLI autenticado y permiso de escritura.
+
+La publicación crea una release estable y un tag apuntando al commit actual. No cambia ni fusiona `main`. Una rama subida sin release no activa actualizaciones. El script no reemplaza versiones existentes.
+
+Las pruebas de integración del actualizador usan copias en `artifacts/qa`, no la aplicación del Escritorio. La comprobación de una release privada real se ejecuta con `dotnet run --project tests/Notaker.Tests -c Release -- --live-update artifacts/qa/live-download` y requiere acceso de GitHub.

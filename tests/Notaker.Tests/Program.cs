@@ -99,6 +99,15 @@ try
         try { await engine.TranscribeAsync(args[0], [], "es", cancelled.Token); throw new Exception("Expected cancellation"); }
         catch (OperationCanceledException) { Check(true, "Cancelled transcription does not start inference"); }
     }
+    await UpdateChecks.RunAsync();
+    if (args.Length == 2 && args[0] == "--live-update")
+    {
+        using var updater = new UpdateService();
+        var token = await UpdateService.GetTokenAsync("", CancellationToken.None);
+        var release = await updater.CheckAsync(token, CancellationToken.None, new Version(0, 0, 0)) ?? throw new Exception("No release published");
+        var downloaded = await updater.DownloadAsync(release, token, args[1], new Progress<double>(), CancellationToken.None);
+        Check(File.Exists(downloaded), "Live private GitHub release downloads with verified hash and version");
+    }
     if (args.Contains("--desktop") || args.Contains("--desktop-fail-focus"))
         await DesktopChecks.RunAsync(args.Contains("--desktop-fail-focus"));
     Console.WriteLine($"{checks} checks passed.");
@@ -123,5 +132,5 @@ finally
 sealed class StubHttp(Func<System.Net.Http.HttpRequestMessage, string, System.Net.Http.HttpResponseMessage> respond) : System.Net.Http.HttpMessageHandler
 {
     protected override async Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
-        => respond(request, await request.Content!.ReadAsStringAsync(cancellationToken));
+        => respond(request, request.Content == null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
 }

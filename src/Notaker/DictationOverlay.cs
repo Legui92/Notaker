@@ -7,14 +7,14 @@ namespace Notaker;
 internal sealed class DictationOverlay : Window
 {
     private readonly TextBlock label = new() { Foreground = Brushes.White, FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
-    private readonly ProgressBar meter = new() { Width = 42, Height = 5, Maximum = 1, Margin = new Thickness(0, 0, 16, 0), Foreground = new SolidColorBrush(Color.FromRgb(190, 233, 122)) };
+    private readonly ProgressBar meter = new() { Width = 42, Height = 5, Maximum = 1, Margin = new Thickness(0, 0, 16, 0), Foreground = new SolidColorBrush(Color.FromRgb(151, 117, 250)) };
     internal DictationOverlay()
     {
         Width = 370; Height = 64; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true; Background = Brushes.Transparent; Topmost = true; ShowInTaskbar = false; ShowActivated = false;
         var stack = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
         stack.Children.Add(meter); stack.Children.Add(label);
-        Content = new Border { Background = new SolidColorBrush(Color.FromRgb(28, 35, 32)), CornerRadius = new CornerRadius(22), Padding = new Thickness(20, 10, 20, 10), Child = stack, BorderBrush = new SolidColorBrush(Color.FromRgb(80, 91, 80)), BorderThickness = new Thickness(1) };
+        Content = new Border { Background = new SolidColorBrush(Color.FromRgb(24, 22, 45)), CornerRadius = new CornerRadius(22), Padding = new Thickness(20, 10, 20, 10), Child = stack, BorderBrush = new SolidColorBrush(Color.FromRgb(83, 69, 130)), BorderThickness = new Thickness(1) };
         SourceInitialized += (_, _) => Native.NoActivate(this);
     }
     internal void Update(string text, float level = 0, bool busy = false)

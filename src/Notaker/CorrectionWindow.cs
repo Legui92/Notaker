@@ -11,7 +11,7 @@ internal sealed class CorrectionWindow : Window
     {
         Title = "Corregir dictado · Notaker"; Width = 640; Height = 520;
         MinWidth = 480; MinHeight = 380; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(247, 248, 243));
+        Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(14, 16, 32));
         var panel = new DockPanel { Margin = new Thickness(24) };
         var header = new TextBlock { Text = learning ? "Corrige el texto. Las palabras nuevas se aprenderán para próximos dictados." : "Corrige el texto. El aprendizaje de vocabulario está desactivado.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
         DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header);
