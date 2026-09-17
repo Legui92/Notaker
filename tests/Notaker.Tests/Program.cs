@@ -31,6 +31,12 @@ try
     storage.Settings.Language = "es";
     storage.Settings.Hotkey = 2;
     storage.SaveSettings();
+    storage.Settings.ProtectedApiKey = SecretStore.Protect("migration-test-ai-key");
+    storage.Settings.ProtectedGitHubToken = "obsolete-unreadable-credential";
+    storage.SaveSettings();
+    var migrated = new Storage(root);
+    Check(migrated.Settings.ProtectedGitHubToken == null && !File.ReadAllText(Path.Combine(root, "settings.json")).Contains("ProtectedGitHubToken"), "Legacy GitHub token is removed without decrypting it");
+    Check(SecretStore.Unprotect(migrated.Settings.ProtectedApiKey) == "migration-test-ai-key" && migrated.Settings.Language == "es", "Removing GitHub credentials preserves the AI key and preferences");
     var reloaded = new Storage(root);
     Check(reloaded.Settings.Language == "es" && reloaded.Settings.Hotkey == 2, "Language and hotkey persist across restarts");
     Check(reloaded.Settings.UseGpu, "Existing settings enable GPU acceleration by default");
@@ -163,10 +169,9 @@ try
     if (args.Length == 2 && args[0] == "--live-update")
     {
         using var updater = new UpdateService();
-        var token = await UpdateService.GetTokenAsync("", CancellationToken.None);
-        var release = await updater.CheckAsync(token, CancellationToken.None, new Version(0, 0, 0)) ?? throw new Exception("No release published");
-        var downloaded = await updater.DownloadAsync(release, token, args[1], new Progress<double>(), CancellationToken.None);
-        Check(File.Exists(downloaded), "Live private GitHub release downloads with verified hash and version");
+        var release = await updater.CheckAsync(CancellationToken.None, new Version(0, 0, 0)) ?? throw new Exception("No release published");
+        var downloaded = await updater.DownloadAsync(release, args[1], new Progress<double>(), CancellationToken.None);
+        Check(File.Exists(downloaded), "Live public GitHub release downloads with verified hash and version");
     }
     if (args.Contains("--desktop") || args.Contains("--desktop-fail-focus"))
         await DesktopChecks.RunAsync(args.Contains("--desktop-fail-focus"));

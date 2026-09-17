@@ -5,3 +5,16 @@
 artifacts/
 .vs/
 *.user
+
+# Local credentials, dictation data and signing keys must never be published.
+.env
+.env.*
+!.env.example
+settings.json
+history.json
+vocabulary.json
+*.pfx
+*.p12
+*.pem
+*.key
+secrets/
