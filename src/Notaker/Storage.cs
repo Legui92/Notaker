@@ -27,7 +27,8 @@ public sealed class Preferences
     public bool LearnVocabulary { get; set; } = true;
     public string ApiModel { get; set; } = "deepseek-flash";
     public string ProtectedApiKey { get; set; } = "";
-    public string ProtectedGitHubToken { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ProtectedGitHubToken { get; set; } // Legacy migration only; never used for authentication.
 }
 
 public sealed class Storage
@@ -47,6 +48,13 @@ public sealed class Storage
         if (Settings.Language is not ("auto" or "es" or "en" or "mixed")) Settings.Language = "auto";
         if (!VoiceModels.IsSupported(Settings.Model)) Settings.Model = "base";
         Settings.Hotkey = Math.Clamp(Settings.Hotkey, 0, 2);
+        if (Settings.ProtectedGitHubToken != null)
+        {
+            Settings.ProtectedGitHubToken = null;
+            try { SaveSettings(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { LoadWarning = "No se pudo eliminar el antiguo acceso de GitHub de los ajustes. Ya no se usa para actualizar."; }
+        }
         History = Read<List<Dictation>>("history.json") ?? [];
         Vocabulary = PersonalVocabulary.Normalize(Read<List<string>>("vocabulary.json") ?? []);
     }
