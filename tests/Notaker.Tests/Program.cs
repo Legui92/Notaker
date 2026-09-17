@@ -46,6 +46,42 @@ try
     Check(!new DictationShortcut(3, 0x2E).IsValid && !new DictationShortcut(2, 0x7B).IsValid, "Reserved Ctrl+Alt+Delete and F12 combinations are rejected");
     reloaded.Settings.CustomHotkey = new DictationShortcut(0xFFFF, 0); reloaded.SaveSettings();
     Check(new Storage(root).Settings.Shortcut == DictationShortcut.FromLegacy(2), "Invalid stored shortcut falls back safely");
+    foreach (var model in VoiceModels.All)
+    {
+        storage.Settings.Model = model.Id;
+        storage.Settings.Language = "mixed";
+        storage.Settings.ProtectedApiKey = SecretStore.Protect("upgrade-test-key");
+        storage.SaveSettings();
+        var upgraded = new Storage(root);
+        Check(upgraded.Settings.Model == model.Id && upgraded.Settings.Language == "mixed"
+            && SecretStore.Unprotect(upgraded.Settings.ProtectedApiKey) == "upgrade-test-key", "Model, Spanglish and protected key persist: " + model.Id);
+    }
+    storage.Settings.Model = "../unsupported"; storage.SaveSettings();
+    Check(new Storage(root).Settings.Model == "base", "Unsupported model cannot escape model directory");
+    Check(DictationText.CleanArtifacts("Esta⠈versión⠂incluye el calendario⡀ de dividendos.") == "Esta versión incluye el calendario de dividendos.", "Braille artifacts become word boundaries");
+    Check(DictationText.CleanArtifacts("Revisar el pull request\nMañana: deployment ✅ + C# / API.") == "Revisar el pull request\nMañana: deployment ✅ + C# / API.", "Spanglish, newlines, accents and meaningful symbols survive cleaning");
+    Check(DictationText.CleanArtifacts("API\u200B Key\uFEFF\u0000") == "API Key", "Invisible artifacts are removed");
+    var polishRequests = 0;
+    using (var mixedPolisher = new TextPolisher(new StubHttp((_, body) =>
+    {
+        polishRequests++;
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        var data = json.RootElement;
+        var prompt = data.GetProperty("messages")[0].GetProperty("content").GetString()!;
+        Check(prompt.Contains("Spanglish/code-switching") && prompt.Contains("Do not translate") && prompt.Contains("do not guess"), "Editor preserves mixed language and avoids guessing ambiguous words");
+        Check(data.GetProperty("model").GetString() == "deepseek-flash" && data.GetProperty("thinking").GetProperty("type").GetString() == "disabled", "Cleanup keeps Flash without reasoning cost");
+        using var input = System.Text.Json.JsonDocument.Parse(data.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        Check(input.RootElement.GetProperty("dictated_text").GetString() == "Revisa el pull request", "Artifacts are removed before sending text to AI");
+        return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Revisa el⡀ pull request.\"}}]}") };
+    })))
+    {
+        Check(await mixedPolisher.PolishAsync("Revisa el⡀ pull request", "mock", "deepseek-flash", [], CancellationToken.None) == "Revisa el pull request." && polishRequests == 1, "One API call per cleanup; output artifacts are removed");
+    }
+    using (var shrinkingPolisher = new TextPolisher(new StubHttp((_, _) => new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Resumen.\"}}]}") })))
+    {
+        try { await shrinkingPolisher.PolishAsync(new string('a', 200), "mock", "deepseek-flash", [], CancellationToken.None); throw new Exception("Destructive summary accepted"); }
+        catch (InvalidOperationException) { Check(true, "Overly destructive editing is rejected"); }
+    }
     Check(!Transcriber.ModelExists(Path.Combine(root, "absent.bin")), "Missing model is detected");
     File.WriteAllBytes(Path.Combine(root, "partial.bin"), [1, 2, 3]);
     Check(!Transcriber.ModelExists(Path.Combine(root, "partial.bin")), "Partial download is not treated as installed model");

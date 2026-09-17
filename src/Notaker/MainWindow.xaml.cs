@@ -37,8 +37,9 @@ public partial class MainWindow : Window
         storage = new Storage(dataRoot);
         InitializeComponent();
         AppVersionLabel.Text = "NOTAKER / WINDOWS · " + UpdateService.VersionLabel;
-        LanguageBox.SelectedIndex = storage.Settings.Language == "es" ? 1 : storage.Settings.Language == "en" ? 2 : 0;
-        ModelBox.SelectedIndex = storage.Settings.Model == "small" ? 1 : 0;
+        LanguageBox.SelectedIndex = storage.Settings.Language == "mixed" ? 3 : storage.Settings.Language == "es" ? 1 : storage.Settings.Language == "en" ? 2 : 0;
+        ModelBox.ItemsSource = VoiceModels.All;
+        ModelBox.SelectedItem = VoiceModels.Get(storage.Settings.Model);
         HotkeyBox.Text = storage.Settings.Shortcut.DisplayName;
         MicrophoneBox.Items.Add("Predeterminado del sistema");
         for (int i = 0; i < WaveIn.DeviceCount; i++) MicrophoneBox.Items.Add(WaveIn.GetCapabilities(i).ProductName);
@@ -82,7 +83,8 @@ public partial class MainWindow : Window
         PrivacyLabel.Text = storage.Settings.CleanWithAi ? "Audio en tu equipo.\nTexto a DeepSeek." : "Tu audio se queda\nen este equipo.";
         ShortcutLabel.Text = storage.Settings.Shortcut.DisplayName;
         SetupButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
-        var modelDescription = storage.Settings.Model == "small" ? "Whisper small (aprox. 466 MiB)" : "Whisper base (aprox. 142 MiB)";
+        var modelDescription = VoiceModels.Get(storage.Settings.Model).Label;
+        ModelDetails.Text = VoiceModels.Get(storage.Settings.Model).Details;
         SetStatus(installed ? "Todo listo. Dale voz a tus ideas." : "Prepara tu primer dictado", installed ? "Sitúa el cursor en otra aplicación y pulsa el atajo para hablar." : $"Descarga {modelDescription}. Después funciona sin internet.");
         LiveText.Text = "";
     }
@@ -200,13 +202,14 @@ public partial class MainWindow : Window
     private void Settings_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!ready) return;
-        storage.Settings.Language = LanguageBox.SelectedIndex == 1 ? "es" : LanguageBox.SelectedIndex == 2 ? "en" : "auto";
+        storage.Settings.Language = LanguageBox.SelectedIndex == 3 ? "mixed" : LanguageBox.SelectedIndex == 1 ? "es" : LanguageBox.SelectedIndex == 2 ? "en" : "auto";
         storage.Settings.Microphone = MicrophoneBox.SelectedIndex - 1; SavePreferences();
     }
     private void Model_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (!ready) return;
-        storage.Settings.Model = ModelBox.SelectedIndex == 1 ? "small" : "base";
+        if (ModelBox.SelectedItem is not VoiceModel model) return;
+        storage.Settings.Model = model.Id;
         SavePreferences(); RefreshStatus();
     }
     private void Hotkey_GotFocus(object sender, KeyboardFocusChangedEventArgs e)
