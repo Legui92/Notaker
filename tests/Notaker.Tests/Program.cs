@@ -11,15 +11,35 @@ void Check(bool value, string message)
 }
 try
 {
+    if (args.Length == 5 && args[0] == "--benchmark")
+    {
+        Whisper.net.LibraryLoader.RuntimeOptions.RuntimeLibraryOrder = args[1] == "cpu"
+            ? [Whisper.net.LibraryLoader.RuntimeLibrary.Cpu]
+            : [Whisper.net.LibraryLoader.RuntimeLibrary.Vulkan];
+        using var logger = Whisper.net.Logger.LogProvider.AddConsoleLogging(Whisper.net.Logger.WhisperLogLevel.Info);
+        using var benchmarkEngine = new Transcriber();
+        var wav = await File.ReadAllBytesAsync(args[3]);
+        for (var run = 0; run < 3; run++)
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var result = await benchmarkEngine.TranscribeAsync(args[2], wav, args[4], CancellationToken.None);
+            Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { run, backend = Whisper.net.LibraryLoader.RuntimeOptions.LoadedLibrary.ToString(), seconds = watch.Elapsed.TotalSeconds, text = result }));
+        }
+        return 0;
+    }
     var storage = new Storage(root);
     storage.Settings.Language = "es";
     storage.Settings.Hotkey = 2;
     storage.SaveSettings();
     var reloaded = new Storage(root);
     Check(reloaded.Settings.Language == "es" && reloaded.Settings.Hotkey == 2, "Language and hotkey persist across restarts");
-    var sample = new Dictation("Español: reunión mañana. English: let's go!", DateTime.Now, 3);
+    Check(reloaded.Settings.UseGpu, "Existing settings enable GPU acceleration by default");
+    reloaded.Settings.UseGpu = false; reloaded.SaveSettings();
+    Check(!new Storage(root).Settings.UseGpu, "CPU preference persists across restarts");
+    var sample = new Dictation("Español: reunión mañana. English: let's go!", DateTime.Now, 3) { RecognitionSeconds = 1.2, PolishSeconds = 0.8 };
     storage.Add(sample);
     Check(new Storage(root).History[0].Text == sample.Text, "Unicode dictation survives storage round trip");
+    Check(new Storage(root).History[0].RecognitionSeconds == 1.2 && new Storage(root).History[0].PolishSeconds == 0.8, "Voice and AI timings survive history round trip");
     storage.Settings.KeepHistory = false;
     storage.Add(sample with { Text = "Do not save" });
     Check(new Storage(root).History.Count == 1, "History opt-out prevents disk persistence");
@@ -131,6 +151,10 @@ try
         Check(spanish.Contains("reunión", StringComparison.OrdinalIgnoreCase) && spanish.Contains("mañana", StringComparison.OrdinalIgnoreCase), "Native Spanish transcription recognizes synthesized fixture");
         var auto = await engine.TranscribeAsync(args[0], await File.ReadAllBytesAsync(args[2]), "auto", CancellationToken.None);
         Check(auto.Contains("mañana", StringComparison.OrdinalIgnoreCase), "Automatic language detection preserves Spanish instead of translating");
+        var cpu = await engine.TranscribeAsync(args[0], await File.ReadAllBytesAsync(args[2]), "es", CancellationToken.None, useGpu: false);
+        Check(cpu.Contains("mañana", StringComparison.OrdinalIgnoreCase), "Disabling GPU reloads the model for CPU recognition");
+        var gpuAgain = await engine.TranscribeAsync(args[0], await File.ReadAllBytesAsync(args[2]), "es", CancellationToken.None);
+        Check(gpuAgain.Contains("mañana", StringComparison.OrdinalIgnoreCase), "GPU can be re-enabled after CPU recognition");
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         try { await engine.TranscribeAsync(args[0], [], "es", cancelled.Token); throw new Exception("Expected cancellation"); }
         catch (OperationCanceledException) { Check(true, "Cancelled transcription does not start inference"); }
