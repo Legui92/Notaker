@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+ <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><PlatformTarget>x64</PlatformTarget><RuntimeIdentifier>win-x64</RuntimeIdentifier><UseWPF>true</UseWPF></PropertyGroup>
+ <ItemGroup><ProjectReference Include="../../src/Notaker/Notaker.csproj" /></ItemGroup>
+</Project>
