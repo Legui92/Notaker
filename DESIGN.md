@@ -11,3 +11,11 @@ Referencia canónica del diseño existente. El usuario pidió tema oscuro por de
 - No presentar aproximaciones como precisión demostrada: indicar límites del historial importado y distinguir palabras editadas, dictados retocados y términos aprendidos.
 - Acciones secundarias discretas; reiniciar contadores requiere confirmación dentro de la aplicación y conserva historial/diccionario. No usar solo color para expresar errores o registro pausado.
 - Verificación visual: capturas del ejecutable con estadísticas vacías y datos sintéticos; no usar dictados privados como ejemplos.
+
+## Logo y arranque — 0.8.0
+
+El usuario eligió la propuesta A, una N de cinta plegada con degradado morado y azul, el 19 de septiembre de 2026. Los originales transparentes de las tres propuestas están en `docs/branding/`. La N elegida es `n-ribbon.png`. Los recursos de distribución son `src/Notaker/Assets/notaker.png` y `notaker.ico`.
+
+El icono de Windows incluye tamaños de 16, 20, 24, 32, 40, 48, 64, 128 y 256 px. PNG e ICO se derivan del original con Pillow y remuestreo Lanczos. Conservar transparencia y proporciones, sin deformarlo ni añadir fondos. Usar la misma marca en cabecera, ejecutable, barra de título y bandeja. Las ventanas secundarias heredan el icono mediante el manejador Loaded de App.
+
+El ajuste de arranque se sitúa junto a las preferencias de dictado. Su estado se consulta en Windows al activar la ventana. Mostrar un mensaje explícito si Windows lo ha deshabilitado o la ruta corresponde a otra copia. No reemplazar la decisión del usuario en el Administrador de tareas.

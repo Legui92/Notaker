@@ -27,6 +27,7 @@ try
         }
         return 0;
     }
+    StartupChecks.Run(root);
     var storage = new Storage(root);
     storage.Settings.Language = "es";
     storage.Settings.Hotkey = 2;

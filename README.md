@@ -135,3 +135,11 @@ El diccionario muestra términos aprendidos al corregir, añadidos manualmente y
 Los contadores se guardan en `%LOCALAPPDATA%\Notaker\statistics.json`, sin audio, textos dictados ni términos. No se envían ni consumen API. Son independientes de Guardar historial. **Guardar estadísticas locales** permite pausarlos, y **Reiniciar estadísticas** borra solo los contadores. El reinicio no vuelve a importar el historial.
 
 La primera apertura de 0.7 importa una vez el uso recuperable del historial disponible (hasta 200 dictados). Las correcciones antiguas no se pueden reconstruir: la vista indica desde cuándo se registran. Si el archivo de contadores está dañado se conserva una copia y se muestra un aviso; si falla su escritura, el dictado sigue disponible pero los totales pueden quedar incompletos.
+
+## Iniciar con Windows
+
+Activa **Iniciar Notaker con Windows** en la ventana principal. Notaker se abrirá cuando inicies sesión y figurará en **Administrador de tareas → Aplicaciones de arranque**. Desde allí puedes habilitarlo o deshabilitarlo. Si Windows lo deshabilitó, el botón **Aplicaciones de inicio de Windows** permite volver a habilitarlo.
+
+El registro es para tu usuario y no requiere administrador. Conserva el ejecutable en su carpeta. Si lo mueves, desmarca y vuelve a marcar la opción desde la nueva ubicación. Las actualizaciones dentro de Notaker conservan esa ruta. Las vistas de prueba no modifican el inicio.
+
+La integración usa [Run de Windows](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys), reconocido por las [aplicaciones de arranque](https://learn.microsoft.com/en-us/windows/win32/w8cookbook/startup-apps). Windows puede retrasar el lanzamiento mientras inicia la sesión.
