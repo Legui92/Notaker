@@ -12,7 +12,7 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
-            new RoutedEventHandler((sender, _) => { if (sender is Window window) { window.Icon ??= new BitmapImage(new Uri("pack://application:,,,/Assets/notaker.ico")); Native.DarkCaption(window); } }));
+            new RoutedEventHandler((sender, _) => { if (sender is Window window) { window.Icon ??= BrandAssets.WindowIcon(); Native.DarkCaption(window); } }));
         try
         {
             if (e.Args.Length == 2 && e.Args[0] == "--apply-update")

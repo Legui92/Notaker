@@ -27,6 +27,7 @@ try
         }
         return 0;
     }
+    if (args.Contains("--branding-desktop") || args.Contains("--branding-check")) BrandingChecks.Run(args.Contains("--branding-desktop"));
     StartupChecks.Run(root);
     var storage = new Storage(root);
     storage.Settings.Language = "es";
