@@ -13,6 +13,8 @@ namespace Notaker;
 public partial class MainWindow : Window
 {
     private readonly Storage storage;
+    private readonly StartupRegistration? startup;
+    private readonly System.Drawing.Icon brandIcon;
     private readonly Transcriber transcriber = new();
     private readonly TextPolisher polisher = new();
     private readonly DictationOverlay overlay = new();
@@ -36,6 +38,11 @@ public partial class MainWindow : Window
     {
         storage = new Storage(dataRoot);
         InitializeComponent();
+        if (dataRoot == null && Environment.ProcessPath is { } executable) startup = new StartupRegistration(executable);
+        RefreshStartup();
+        Activated += (_, _) => RefreshStartup();
+        using (var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/notaker.ico")).Stream)
+        using (var icon = new System.Drawing.Icon(iconStream)) brandIcon = (System.Drawing.Icon)icon.Clone();
         AppVersionLabel.Text = "NOTAKER / WINDOWS · " + UpdateService.VersionLabel;
         LanguageBox.SelectedIndex = storage.Settings.Language == "mixed" ? 3 : storage.Settings.Language == "es" ? 1 : storage.Settings.Language == "en" ? 2 : 0;
         ModelBox.ItemsSource = VoiceModels.All;
@@ -48,7 +55,7 @@ public partial class MainWindow : Window
         GpuBox.IsChecked = storage.Settings.UseGpu;
         PasteBox.IsChecked = storage.Settings.AutoPaste;
         HistoryBox.IsChecked = storage.Settings.KeepHistory;
-        tray = new Forms.NotifyIcon { Text = "Notaker · Dictado", Icon = System.Drawing.SystemIcons.Application, Visible = true };
+        tray = new Forms.NotifyIcon { Text = "Notaker · Dictado", Icon = brandIcon, Visible = true };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Abrir Notaker", null, (_, _) => ShowMain());
         menu.Items.Add("Copiar último dictado", null, async (_, _) => { if (lastText != null) await Native.CopyAsync(lastText); });
@@ -303,6 +310,41 @@ public partial class MainWindow : Window
         SaveHotkeyButton.IsEnabled = false; RefreshStatus();
         HotkeyHint.Text = "Guardado: " + choice.DisplayName;
     }
+    private void RefreshStartup()
+    {
+        StartupBox.IsEnabled = startup != null;
+        if (startup == null) { StartupHint.Text = "Inicio automático no disponible en la vista de prueba."; return; }
+        try
+        {
+            var state = startup.Read();
+            StartupBox.IsChecked = state.Enabled;
+            StartupHint.Text = state.Registered && state.DisabledByWindows
+                ? "Deshabilitado en Windows. Habilita Notaker en Aplicaciones de inicio."
+                : state.Registered && !state.CurrentExecutable
+                    ? "El inicio apunta a otra copia. Desmarca y vuelve a marcar para usar este ejecutable."
+                    : state.Enabled
+                        ? "Se abrirá al iniciar sesión. Puedes deshabilitarlo en el Administrador de tareas."
+                        : "Abre Notaker automáticamente al iniciar tu sesión de Windows.";
+        }
+        catch (Exception ex) { StartupBox.IsEnabled = false; StartupHint.Text = "No se pudo consultar el inicio: " + ex.Message; }
+    }
+    private void Startup_Click(object sender, RoutedEventArgs e)
+    {
+        if (startup == null) return;
+        try
+        {
+            startup.SetRegistered(StartupBox.IsChecked == true);
+            RefreshStartup();
+            if (startup.Read() is { Registered: true, DisabledByWindows: true }) OpenStartupSettings();
+        }
+        catch (Exception ex) { RefreshStartup(); SetStatus("No se pudo cambiar el inicio", ex.Message); }
+    }
+    private void StartupSettings_Click(object sender, RoutedEventArgs e) => OpenStartupSettings();
+    private void OpenStartupSettings()
+    {
+        try { Process.Start(new ProcessStartInfo("ms-settings:startupapps") { UseShellExecute = true }); }
+        catch (Exception ex) { SetStatus("Abre el Administrador de tareas", "Ve a Aplicaciones de arranque y busca Notaker. " + ex.Message); }
+    }
     private void Preference_Click(object sender, RoutedEventArgs e)
     {
         if (!ready) return;
@@ -364,7 +406,7 @@ public partial class MainWindow : Window
         if (registered) Native.Unregister(handle, hotkeyId);
         if (recorder != null && !busy) { try { await recorder.StopAsync(); } catch { } recorder.Dispose(); recorder = null; }
         if (operation != null) { try { await operation; } catch { } }
-        source?.RemoveHook(WindowMessage); overlay.Close(); tray.Dispose(); transcriber.Dispose(); polisher.Dispose(); lifetime.Dispose();
+        source?.RemoveHook(WindowMessage); overlay.Close(); tray.Dispose(); brandIcon.Dispose(); transcriber.Dispose(); polisher.Dispose(); lifetime.Dispose();
         System.Windows.Application.Current.Shutdown();
     }
 }
