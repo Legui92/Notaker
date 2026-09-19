@@ -12,7 +12,7 @@ public partial class App : System.Windows.Application
     {
         base.OnStartup(e);
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
-            new RoutedEventHandler((sender, _) => { if (sender is Window window) Native.DarkCaption(window); }));
+            new RoutedEventHandler((sender, _) => { if (sender is Window window) { window.Icon ??= new BitmapImage(new Uri("pack://application:,,,/Assets/notaker.ico")); Native.DarkCaption(window); } }));
         try
         {
             if (e.Args.Length == 2 && e.Args[0] == "--apply-update")
@@ -36,6 +36,7 @@ public partial class App : System.Windows.Application
             }
             var smoke = e.Args.Length == 2 && e.Args[0] == "--smoke-test";
             instance = new Mutex(true, smoke ? "Local\\Notaker.SmokeTest" : "Local\\Notaker.Desktop", out var first);
+            if (!first && e.Args.Contains("--startup")) { Shutdown(); return; }
             if (!first) { System.Windows.MessageBox.Show("Notaker ya está abierto. Búscalo en la bandeja del sistema.", "Notaker"); Shutdown(); return; }
             var window = new MainWindow(smoke ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data") : null);
             MainWindow = window;

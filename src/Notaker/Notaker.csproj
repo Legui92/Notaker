@@ -10,13 +10,18 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
+    <ApplicationIcon>Assets/notaker.ico</ApplicationIcon>
+    <Product>Notaker</Product>
+    <Description>Notaker</Description>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <!-- WPF owns DPI awareness; WinForms is used only for the notification icon. -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <Resource Include="Assets/notaker.png" />
+    <Resource Include="Assets/notaker.ico" />
     <PackageReference Include="Whisper.net" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.0" />
