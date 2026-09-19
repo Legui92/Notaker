@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     private readonly Transcriber transcriber = new();
     private readonly TextPolisher polisher = new();
     private readonly DictationOverlay overlay = new();
-    private readonly Forms.NotifyIcon tray;
+    private readonly TrayIcon tray;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly Stopwatch duration = new();
     private readonly CancellationTokenSource lifetime = new();
@@ -55,7 +55,7 @@ public partial class MainWindow : Window
         GpuBox.IsChecked = storage.Settings.UseGpu;
         PasteBox.IsChecked = storage.Settings.AutoPaste;
         HistoryBox.IsChecked = storage.Settings.KeepHistory;
-        tray = new Forms.NotifyIcon { Text = "Notaker · Dictado", Icon = brandIcon, Visible = true };
+        tray = new TrayIcon(brandIcon, dataRoot == null ? null : Guid.NewGuid());
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Abrir Notaker", null, (_, _) => ShowMain());
         menu.Items.Add("Copiar último dictado", null, async (_, _) => { if (lastText != null) await Native.CopyAsync(lastText); });
