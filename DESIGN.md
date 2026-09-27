@@ -25,3 +25,7 @@ El ajuste de arranque se sitúa junto a las preferencias de dictado. Su estado s
 Cargar el ICO de ventanas mediante `BitmapFrame.Create`, conservando su decoder multirresolución. `BitmapImage` tomaba el frame de 16 px y WPF lo centraba dentro del HICON grande de 32 px. Medición real: N de 12 px antes y 24 px después. No modificar la marca ni compensar un error del cargador agrandando el dibujo.
 
 La bandeja usa `Shell_NotifyIcon` con un GUID propio. El aviso normal de segundo plano usa `NIIF_USER | NIIF_LARGE_ICON` y `hBalloonIcon`, conservando símbolos semánticos para avisos de error. Se respetan las preferencias de notificaciones de Windows. Referencias: [Window.Icon](https://learn.microsoft.com/en-us/dotnet/api/system.windows.window.icon) y [NOTIFYICONDATAW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-notifyicondataw).
+
+### Recuperación — 0.9.0
+
+Acceso **Recuperar dictados** encima de Estadísticas en la barra lateral. Reutiliza fondo oscuro y componentes existentes. La ventana lista fechas, permite reintentar, exportar WAV y eliminar con confirmación. Indica que la exportación queda sin cifrar. El estado «Preparando · aún no graba» distingue explícitamente la inicialización de la escucha. Los controles vuelven a habilitarse tras una recuperación fallida. Captura de prueba con audio sintético revisada.
