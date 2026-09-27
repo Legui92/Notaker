@@ -59,6 +59,15 @@ public sealed class TrayIcon : Forms.NativeWindow, IDisposable
 
     protected override void WndProc(ref Forms.Message message)
     {
+        try { HandleMessage(ref message); }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // Never enter WinForms' ThreadExceptionDialog from the unmanaged callback.
+            AppLog.Write("tray.callback.failed", ex);
+        }
+    }
+    private void HandleMessage(ref Forms.Message message)
+    {
         if (message.Msg == taskbarCreated && !disposed) Register();
         if (message.Msg == Callback && !disposed)
         {

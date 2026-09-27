@@ -23,6 +23,39 @@ public sealed class Transcriber : IDisposable
     private WhisperFactory? factory;
     private string? loadedModel;
     private bool loadedUseGpu;
+    private string? failedGpuModel;
+    public bool UsingGpu => factory != null && loadedUseGpu;
+    public Task PrepareAsync(string model, bool useGpu, CancellationToken token) => Task.Run(() =>
+    {
+        token.ThrowIfCancellationRequested(); EnsureFactory(model, useGpu); token.ThrowIfCancellationRequested();
+    }, token);
+    private void EnsureFactory(string model, bool useGpu)
+    {
+        var effectiveGpu = useGpu && failedGpuModel != model;
+        if (loadedModel != model || loadedUseGpu != effectiveGpu) { factory?.Dispose(); factory = null; }
+        loadedModel = model; loadedUseGpu = effectiveGpu;
+        if (factory != null) return;
+        AppLog.Write(effectiveGpu ? "model.load.gpu" : "model.load.cpu");
+        try { factory = OpenFactory(model, effectiveGpu); }
+        catch (Exception ex) when (effectiveGpu && ex is not OutOfMemoryException)
+        {
+            AppLog.Write("model.gpu.failed.retry.cpu", ex);
+            failedGpuModel = model; loadedUseGpu = false;
+            factory = OpenFactory(model, false);
+        }
+        AppLog.Write("model.ready");
+    }
+    private static WhisperFactory OpenFactory(string path, bool useGpu)
+    {
+        var loaded = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = useGpu });
+        try
+        {
+            // FromPath is lazy: creating a processor forces the native model/context load.
+            using var validation = loaded.CreateBuilder().Build();
+            return loaded;
+        }
+        catch { loaded.Dispose(); throw; }
+    }
     public static bool ModelExists(string path)
     {
         var model = VoiceModels.All.FirstOrDefault(m => Path.GetFileName(path) == $"ggml-{m.Id}.bin");
@@ -56,7 +89,7 @@ public sealed class Transcriber : IDisposable
                     throw new IOException("La descarga del modelo está incompleta. Vuelve a intentarlo.");
             }
             // Validate with the native reader before making the download available.
-            using (WhisperFactory.FromPath(temp, new WhisperFactoryOptions { UseGpu = false })) { }
+            using (OpenFactory(temp, false)) { }
             File.Move(temp, path, true);
         }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -64,9 +97,8 @@ public sealed class Transcriber : IDisposable
 
     public Task<string> TranscribeAsync(string model, byte[] wav, string language, CancellationToken token, string? vocabulary = null, bool useGpu = true) => Task.Run(async () =>
     {
-        if (loadedModel != model || loadedUseGpu != useGpu) { factory?.Dispose(); factory = null; loadedModel = model; loadedUseGpu = useGpu; }
-        factory ??= WhisperFactory.FromPath(model, new WhisperFactoryOptions { UseGpu = useGpu });
-        var builder = factory.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
+        EnsureFactory(model, useGpu);
+        var builder = factory!.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
             .WithTemperature(0);
         builder.WithBeamSearchSamplingStrategy();
         var prompt = language == "mixed" ? "Español e inglés. Spanish and English. " + vocabulary : vocabulary;

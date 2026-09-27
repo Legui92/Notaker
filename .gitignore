@@ -20,3 +20,7 @@ vocabulary.json
 secrets/
 statistics.json
 .memory-pending/
+*.audio
+recovery/
+logs/
+*.dmp

@@ -17,3 +17,8 @@ Se revisaron ambas ramas públicas, todos los commits alcanzables (72 blobs Git 
 También se contrastó en memoria la credencial de IA configurada localmente y su representación cifrada con el historial y los textos/cadenas publicados: no se encontraron coincidencias. No se incluyeron esas credenciales en comandos, informes ni archivos de auditoría.
 
 Se activaron el escaneo de secretos, la protección de push y las alertas de dependencias de GitHub. `.gitignore` excluye datos personales y archivos habituales de credenciales. La revisión no certifica ausencia total de vulnerabilidades ni garantiza que detecte cualquier secreto futuro. Como en cualquier repositorio público, código, historial y metadatos de autor de los commits son visibles.
+## Copias de recuperación y diagnósticos (0.9.0)
+
+El audio pendiente y el texto de recuperación se cifran con DPAPI CurrentUser en el perfil local. No se envían al repositorio ni a un servicio de diagnóstico. La limpieza opcional con IA sigue enviando únicamente el texto correspondiente al proveedor configurado. Las copias de recuperación se conservan hasta la entrega o eliminación explícita. Exportar WAV genera un archivo sin cifrar en la ubicación elegida.
+
+Los logs omiten mensajes de excepción porque podrían contener texto sensible. Guardan tipo, HResult y nombres de métodos, con rotación aproximada de 1 MB más una copia anterior. Esto no protege frente a otro proceso ejecutado como el mismo usuario ni cifra el historial existente, que conserva su formato local previo.

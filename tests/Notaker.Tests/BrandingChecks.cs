@@ -46,6 +46,16 @@ static class BrandingChecks
                     if (!tray.ContextMenuStrip.Visible) throw new Exception("Tray context menu missing");
                     tray.ContextMenuStrip.Close();
                     Console.WriteLine("PASS: Native tray context menu opens and closes");
+                    bool faultInvoked = false;
+                    EventHandler fail = (_, _) => { faultInvoked = true; throw new InvalidOperationException("Synthetic callback failure"); };
+                    tray.DoubleClick += fail;
+                    SendMessage(tray.Handle, 0x8001, IntPtr.Zero, (IntPtr)0x203);
+                    tray.DoubleClick -= fail;
+                    if (!faultInvoked) throw new Exception("Faulting callback was not exercised");
+                    clicked = false;
+                    SendMessage(tray.Handle, 0x8001, IntPtr.Zero, (IntPtr)0x203);
+                    if (!clicked) throw new Exception("Tray stopped responding after callback failure");
+                    Console.WriteLine("PASS: Callback exception is contained and subsequent tray clicks still work");
                     if (showNotification)
                     {
                         if (!tray.ShowBalloonTip(2500, "Notaker sigue activo", "Usa el atajo para dictar. Para cerrar, elige Salir en la bandeja.", Forms.ToolTipIcon.Info))
