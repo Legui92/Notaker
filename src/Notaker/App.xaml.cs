@@ -8,13 +8,26 @@ namespace Notaker;
 public partial class App : System.Windows.Application
 {
     private Mutex? instance;
+    private BundleLease? bundleLease;
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Length == 2 && (e.Args[0] is "--smoke-test" or "--recovery-smoke-test"))
+            AppLog.Configure(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data"));
+        AppLog.Write("app.start");
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => AppLog.Write("app.unhandled", args.ExceptionObject as Exception);
+        System.Windows.Forms.Application.SetUnhandledExceptionMode(System.Windows.Forms.UnhandledExceptionMode.CatchException);
+        System.Windows.Forms.Application.ThreadException += (_, args) =>
+        {
+            AppLog.Write("winforms.callback.failed", args.Exception);
+            Dispatcher.BeginInvoke(new Action(() => { if (MainWindow is MainWindow main) main.ReportUiError(args.Exception); }));
+        };
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
             new RoutedEventHandler((sender, _) => { if (sender is Window window) { window.Icon ??= BrandAssets.WindowIcon(); Native.DarkCaption(window); } }));
         try
         {
+            bundleLease = BundleLease.Acquire();
+            AppLog.Write("dependencies.protected");
             if (e.Args.Length == 2 && e.Args[0] == "--apply-update")
             {
                 await UpdateInstaller.ApplyAsync(e.Args[1]); Shutdown(0); return;
@@ -34,13 +47,14 @@ public partial class App : System.Windows.Application
                 await File.WriteAllTextAsync(e.Args[3], result);
                 Shutdown(0); return;
             }
-            var smoke = e.Args.Length == 2 && e.Args[0] == "--smoke-test";
+            var smoke = e.Args.Length == 2 && (e.Args[0] is "--smoke-test" or "--recovery-smoke-test");
             instance = new Mutex(true, smoke ? "Local\\Notaker.SmokeTest" : "Local\\Notaker.Desktop", out var first);
             if (!first && e.Args.Contains("--startup")) { Shutdown(); return; }
             if (!first) { System.Windows.MessageBox.Show("Notaker ya está abierto. Búscalo en la bandeja del sistema.", "Notaker"); Shutdown(); return; }
             var window = new MainWindow(smoke ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data") : null);
             MainWindow = window;
             window.Show();
+            if (smoke && e.Args[0] == "--recovery-smoke-test") await window.VerifyRecoveryFailureForSmokeAsync();
             if (e.Args.Length == 2 && e.Args[0] == "--update-confirm")
                 await File.WriteAllTextAsync(e.Args[1], UpdateService.VersionLabel);
             if (smoke)
@@ -74,14 +88,22 @@ public partial class App : System.Windows.Application
                 var statsEncoder = new PngBitmapEncoder(); statsEncoder.Frames.Add(BitmapFrame.Create(statsImage));
                 using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".statistics.png"))) statsEncoder.Save(output);
                 statistics.Close();
+                var recovery = new RecoveryWindow(new RecoveryStore(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(e.Args[1]))!, "smoke-data"))) { Owner = window };
+                recovery.Show(); await Task.Delay(200); recovery.UpdateLayout();
+                var recoveryImage = new RenderTargetBitmap((int)recovery.ActualWidth, (int)recovery.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                recoveryImage.Render(recovery);
+                var recoveryEncoder = new PngBitmapEncoder(); recoveryEncoder.Frames.Add(BitmapFrame.Create(recoveryImage));
+                using (var output = File.Create(Path.ChangeExtension(e.Args[1], ".recovery.png"))) recoveryEncoder.Save(output);
+                recovery.Close();
                 await window.ExitAsync();
             }
         }
         catch (Exception ex)
         {
+            AppLog.Write("app.start.failed", ex);
             if (e.Args.Length > 0) { File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "diagnostic-error.txt"), ex.ToString()); Shutdown(1); }
             else { System.Windows.MessageBox.Show(ex.Message, "No se pudo iniciar Notaker"); Shutdown(1); }
         }
     }
-    protected override void OnExit(ExitEventArgs e) { instance?.Dispose(); base.OnExit(e); }
+    protected override void OnExit(ExitEventArgs e) { AppLog.Write("app.exit"); bundleLease?.Dispose(); instance?.Dispose(); base.OnExit(e); }
 }

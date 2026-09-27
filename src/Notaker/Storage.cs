@@ -6,6 +6,7 @@ namespace Notaker;
 public sealed record Dictation(string Text, DateTime CreatedAt, double Seconds)
 {
     public string Caption => $"{CreatedAt:dd MMM · HH:mm}   /   {Seconds:0} s" + (RecognitionSeconds is double voice ? $" · Voz {voice:0.0} s" : "") + (PolishSeconds is double ai ? $" · IA {ai:0.0} s" : "");
+    public string? RecoveryId { get; init; }
     public string? OriginalText { get; init; }
     public double? RecognitionSeconds { get; init; }
     public double? PolishSeconds { get; init; }
@@ -85,6 +86,11 @@ public sealed class Storage
     public void SaveSettings() => Write("settings.json", Settings);
     public void Add(Dictation item)
     {
+        if (item.RecoveryId != null && History.Any(x => x.RecoveryId == item.RecoveryId))
+        {
+            if (Settings.KeepHistory) Write("history.json", History);
+            return;
+        }
         if (Settings.TrackStatistics) Statistics.RecordDictation(item);
         if (!Settings.KeepHistory) return;
         History.Insert(0, item);

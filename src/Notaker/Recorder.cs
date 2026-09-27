@@ -10,19 +10,25 @@ public sealed class Recorder : IDisposable
     private readonly WaveFileWriter writer;
     private readonly TaskCompletionSource<byte[]> stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool stopping;
+    private readonly RecoveryStore.Capture? backup;
     private int voicedBuffers;
     private int bufferCount;
     public float Level { get; private set; }
     public bool HasSpeech => voicedBuffers >= 3;
     public event Action<Exception>? Failed;
 
-    public Recorder(int device)
+    public Recorder(int device, RecoveryStore.Capture? backup = null)
     {
+        this.backup = backup;
         input = new WaveInEvent { DeviceNumber = device, WaveFormat = new WaveFormat(16000, 16, 1), BufferMilliseconds = 100 };
         writer = new WaveFileWriter(stream, input.WaveFormat);
         input.DataAvailable += (_, e) =>
         {
-            writer.Write(e.Buffer, 0, e.BytesRecorded);
+            try { backup?.Append(e.Buffer, e.BytesRecorded); writer.Write(e.Buffer, 0, e.BytesRecorded); }
+            catch (Exception ex)
+            {
+                stopped.TrySetException(ex); Failed?.Invoke(ex); input.StopRecording(); return;
+            }
             double squares = 0;
             for (var i = 0; i + 1 < e.BytesRecorded; i += 2)
             {
@@ -36,9 +42,13 @@ public sealed class Recorder : IDisposable
         };
         input.RecordingStopped += (_, e) =>
         {
-            writer.Flush();
-            if (e.Exception != null) { stopped.TrySetException(e.Exception); Failed?.Invoke(e.Exception); }
-            else stopped.TrySetResult(stream.ToArray());
+            try
+            {
+                writer.Flush();
+                if (e.Exception != null) { stopped.TrySetException(e.Exception); Failed?.Invoke(e.Exception); }
+                else stopped.TrySetResult(stream.ToArray());
+            }
+            catch (Exception ex) { stopped.TrySetException(ex); Failed?.Invoke(ex); }
         };
     }
     public void Start() => input.StartRecording();
@@ -47,5 +57,5 @@ public sealed class Recorder : IDisposable
         if (!stopping) { stopping = true; input.StopRecording(); }
         return await stopped.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
-    public void Dispose() { input.Dispose(); writer.Dispose(); stream.Dispose(); }
+    public void Dispose() { input.Dispose(); writer.Dispose(); stream.Dispose(); backup?.Dispose(); }
 }

@@ -1,0 +1,9 @@
+<Window x:Class="Notaker.RecoveryWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Notaker — Dictados pendientes" Width="660" Height="460" MinWidth="560" MinHeight="380" Style="{StaticResource {x:Type Window}}" WindowStartupLocation="CenterOwner">
+ <Grid Margin="26"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <TextBlock Text="Tu dictado sigue aquí" FontSize="25" FontWeight="SemiBold"/>
+  <TextBlock Grid.Row="1" Text="Las copias están cifradas para tu usuario de Windows. Puedes reintentar con el modelo seleccionado en la ventana principal o exportar el audio." TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,12,0,16"/>
+  <ListBox Grid.Row="2" x:Name="EntriesList" DisplayMemberPath="Label" Background="{StaticResource Surface}" Foreground="{StaticResource Ink}" BorderBrush="{StaticResource Edge}" AutomationProperties.Name="Dictados pendientes"/>
+  <TextBlock Grid.Row="3" x:Name="Hint" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,12,0,12"/>
+  <StackPanel Grid.Row="4" Orientation="Horizontal"><Button Content="Reintentar" Click="Retry_Click"/><Button Content="Exportar audio" Click="Export_Click" Margin="10,0"/><Button Content="Eliminar copia" Click="Delete_Click"/></StackPanel>
+ </Grid>
+</Window>

@@ -1,8 +1,19 @@
 using Notaker;
 using System.IO;
 
+if (args.Length == 2 && args[0] == "--recovery-crash-fixture")
+{
+    var fixture = new RecoveryStore(args[1]);
+    using var capture = fixture.Begin();
+    capture.Append(new byte[32000], 32000);
+    Console.WriteLine(capture.Id); Console.Out.Flush();
+    await Task.Delay(Timeout.Infinite);
+    return 0;
+}
+
 var root = Path.Combine(Path.GetTempPath(), "Notaker-tests-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
+AppLog.Configure(root);
 int checks = 0;
 void Check(bool value, string message)
 {
@@ -28,6 +39,8 @@ try
         return 0;
     }
     if (args.Contains("--branding-desktop") || args.Contains("--branding-check")) BrandingChecks.Run(args.Contains("--branding-desktop"));
+    AppLog.Configure(root);
+    RecoveryChecks.Run(root);
     StartupChecks.Run(root);
     var storage = new Storage(root);
     storage.Settings.Language = "es";

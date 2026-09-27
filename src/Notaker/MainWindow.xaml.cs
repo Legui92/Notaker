@@ -13,6 +13,8 @@ namespace Notaker;
 public partial class MainWindow : Window
 {
     private readonly Storage storage;
+    private readonly RecoveryStore recovery;
+    private string? activeRecoveryId;
     private readonly StartupRegistration? startup;
     private readonly System.Drawing.Icon brandIcon;
     private readonly Transcriber transcriber = new();
@@ -37,7 +39,9 @@ public partial class MainWindow : Window
     public MainWindow(string? dataRoot = null)
     {
         storage = new Storage(dataRoot);
+        recovery = new RecoveryStore(storage.Root);
         InitializeComponent();
+        RefreshRecovery();
         if (dataRoot == null && Environment.ProcessPath is { } executable) startup = new StartupRegistration(executable);
         RefreshStartup();
         Activated += (_, _) => RefreshStartup();
@@ -76,6 +80,7 @@ public partial class MainWindow : Window
             source = HwndSource.FromHwnd(handle); source.AddHook(WindowMessage);
             registered = Native.Register(handle, storage.Settings.Shortcut, hotkeyId);
             ready = true; RefreshStatus();
+            if (recovery.Entries().Count > 0) SetStatus("Hay dictados pendientes", "Pulsa Recuperar dictados para reintentarlos o exportar el audio.");
             if (!registered) SetStatus("Atajo ocupado", "Selecciona otra combinación: otra aplicación está usando este atajo.");
             else if (storage.LoadWarning != null) SetStatus("Datos recuperados", storage.LoadWarning);
         };
@@ -116,9 +121,18 @@ public partial class MainWindow : Window
                 if (WaveIn.DeviceCount == 0) throw new InvalidOperationException("No se encontró un micrófono. Conecta uno y vuelve a abrir Notaker.");
                 target = Native.GetForegroundWindow();
                 if (target == handle) { SetStatus("Elige dónde escribir", "Sitúa el cursor en el editor, chat o documento de destino y pulsa el atajo."); return; }
-                recorder = new Recorder(storage.Settings.Microphone);
+                busy = true; SettingsPanel.IsEnabled = false;
+                SetStatus("Preparando el modelo", "Comprobamos el motor antes de abrir el micrófono. Todavía no estamos grabando.");
+                overlay.Update("Preparando · aún no graba", busy: true);
+                AppLog.Write("dictation.preflight");
+                await transcriber.PrepareAsync(storage.ModelPath, storage.Settings.UseGpu, lifetime.Token);
+                if (exiting) return;
+                var backup = recovery.Begin(); activeRecoveryId = backup.Id;
+                try { recorder = new Recorder(storage.Settings.Microphone, backup); }
+                catch { backup.Dispose(); throw; }
                 recorder.Failed += ex => Dispatcher.BeginInvoke(new Action(() => RecordingFailed(ex)));
                 recorder.Start();
+                AppLog.Write("recording.started");
                 duration.Restart(); SettingsPanel.IsEnabled = false;
                 overlayVersion++; overlay.Update("Escuchando · 00:00"); timer.Start();
                 SetStatus("Te estamos escuchando", "Pulsa de nuevo el atajo para transcribir. Máximo 10 minutos por dictado.");
@@ -137,52 +151,130 @@ public partial class MainWindow : Window
                 SetStatus("No se detectó voz", "Comprueba el micrófono seleccionado y vuelve a intentarlo.");
                 await ShowOverlayMessage("No se detectó voz"); return;
             }
-            var recognitionWatch = Stopwatch.StartNew();
-            var text = await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, lifetime.Token, PersonalVocabulary.Prompt(storage.Vocabulary), storage.Settings.UseGpu);
-            recognitionWatch.Stop();
-            double? polishSeconds = null;
-            if (exiting) return;
-            if (string.IsNullOrWhiteSpace(text)) { SetStatus("No se obtuvo texto", "Intenta hablar más cerca del micrófono."); await ShowOverlayMessage("Sin texto reconocido"); return; }
-            var rawText = text;
-            string? polishWarning = null;
-            int? aiWordEdits = null;
-            if (storage.Settings.CleanWithAi)
-            {
-                overlay.Update("Puliendo tu escritura…", busy: true);
-                SetStatus("Dando forma a tus palabras", "DeepSeek está limpiando muletillas y puntuación, conservando el contenido.");
-                var polishWatch = Stopwatch.StartNew();
-                try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
-                catch (OperationCanceledException) when (exiting) { throw; }
-                catch (Exception ex) { polishWarning = "Se conservó el texto original. La limpieza con IA falló: " + ex.Message; }
-                finally { polishSeconds = polishWatch.Elapsed.TotalSeconds; }
-            }
-            if (exiting) return;
-            lastText = text;
-            lastDictation = new Dictation(text, DateTime.Now, duration.Elapsed.TotalSeconds) { OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, PolishSeconds = polishSeconds, AiWordEdits = aiWordEdits };
-            string? saveWarning = null;
-            try { storage.Add(lastDictation); }
-            catch (Exception ex) { saveWarning = "No se pudo guardar el historial: " + ex.Message; }
-            RefreshHistory();
-            var copied = await Native.CopyAsync(text);
-            var pasted = copied && storage.Settings.AutoPaste && await Native.PasteAsync(target, text);
-            SetStatus(pasted ? "Dictado enviado" : copied ? "Dictado copiado" : "Dictado listo", saveWarning ?? polishWarning ?? (pasted ? "Texto enviado a la aplicación de origen. También está en el portapapeles." : copied ? "Pulsa Ctrl+V en el campo de destino para pegarlo." : "El portapapeles está ocupado. Copia el texto desde el historial o la bandeja."));
-            if (polishWarning != null) tray.ShowBalloonTip(5000, "Dictado sin limpieza de IA", polishWarning, Forms.ToolTipIcon.Warning);
-            await ShowOverlayMessage(polishWarning != null ? "Texto original · IA no disponible" : pasted ? "✓ Texto enviado" : copied ? "✓ Copiado · usa Ctrl+V" : "Texto listo · abre Notaker");
+            await CompleteDictationAsync(audio, duration.Elapsed.TotalSeconds, activeRecoveryId!);
         }
         catch (OperationCanceledException) when (exiting) { }
         catch (Exception ex)
         {
+            AppLog.Write("dictation.failed", ex);
             timer.Stop(); duration.Stop(); recorder?.Dispose(); recorder = null; overlay.Hide();
-            SetStatus("No se pudo completar el dictado", FriendlyError(ex));
+            SetStatus("No se pudo completar el dictado", FriendlyError(ex) + " Si habías grabado, revisa Recuperar dictados.");
             if (!exiting) { tray.ShowBalloonTip(5000, "Notaker", FriendlyError(ex), Forms.ToolTipIcon.Warning); ShowMain(); }
         }
-        finally { busy = false; if (recorder == null) { SettingsPanel.IsEnabled = true; LiveText.Text = ""; } }
+        finally { busy = false; RefreshRecovery(); if (recorder == null) { SettingsPanel.IsEnabled = true; LiveText.Text = ""; } }
+    }
+    private async Task CompleteDictationAsync(byte[] audio, double seconds, string recoveryId)
+    {
+        AppLog.Write("transcription.started");
+        var recognitionWatch = Stopwatch.StartNew();
+        var text = recovery.ReadText(recoveryId) ?? await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, lifetime.Token, PersonalVocabulary.Prompt(storage.Vocabulary), storage.Settings.UseGpu);
+        recognitionWatch.Stop();
+        double? polishSeconds = null;
+        if (exiting) return;
+        if (string.IsNullOrWhiteSpace(text)) { SetStatus("No se obtuvo texto", "Intenta hablar más cerca del micrófono."); await ShowOverlayMessage("Sin texto reconocido"); return; }
+        recovery.SaveText(recoveryId, text);
+        var rawText = text;
+        string? polishWarning = null;
+        int? aiWordEdits = null;
+        if (storage.Settings.CleanWithAi)
+        {
+            overlay.Update("Puliendo tu escritura…", busy: true);
+            SetStatus("Dando forma a tus palabras", "DeepSeek está limpiando muletillas y puntuación, conservando el contenido.");
+            var polishWatch = Stopwatch.StartNew();
+            try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
+            catch (OperationCanceledException) when (exiting) { throw; }
+            catch (Exception ex) { polishWarning = "Se conservó el texto original. La limpieza con IA falló: " + ex.Message; }
+            finally { polishSeconds = polishWatch.Elapsed.TotalSeconds; }
+        }
+        if (exiting) return;
+        lastText = text;
+        lastDictation = new Dictation(text, DateTime.Now, seconds) { RecoveryId = recoveryId, OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, PolishSeconds = polishSeconds, AiWordEdits = aiWordEdits };
+        string? saveWarning = null;
+        try { storage.Add(lastDictation); }
+        catch (Exception ex) { saveWarning = "No se pudo guardar el historial: " + ex.Message; }
+        RefreshHistory();
+        var copied = await Native.CopyAsync(text);
+        var pasted = copied && storage.Settings.AutoPaste && await Native.PasteAsync(target, text);
+        if (copied || (storage.Settings.KeepHistory && saveWarning == null))
+        {
+            try { recovery.Delete(recoveryId); }
+            catch (Exception ex) { AppLog.Write("recovery.cleanup.failed", ex); }
+        }
+        AppLog.Write("dictation.completed");
+        RefreshRecovery();
+        SetStatus(pasted ? "Dictado enviado" : copied ? "Dictado copiado" : "Dictado listo", saveWarning ?? polishWarning ?? (pasted ? "Texto enviado a la aplicación de origen. También está en el portapapeles." : copied ? "Pulsa Ctrl+V en el campo de destino para pegarlo." : "El portapapeles está ocupado. Copia el texto desde el historial o la bandeja."));
+        if (polishWarning != null) tray.ShowBalloonTip(5000, "Dictado sin limpieza de IA", polishWarning, Forms.ToolTipIcon.Warning);
+        await ShowOverlayMessage(polishWarning != null ? "Texto original · IA no disponible" : pasted ? "✓ Texto enviado" : copied ? "✓ Copiado · usa Ctrl+V" : "Texto listo · abre Notaker");
+    }
+    private void RefreshRecovery()
+    {
+        try { RecoveryButton.Content = $"Recuperar dictados ({recovery.Entries().Count})"; }
+        catch (Exception ex) { AppLog.Write("recovery.list.failed", ex); }
+    }
+    private async void Recovery_Click(object sender, RoutedEventArgs e)
+    {
+        if (busy || recorder != null) return;
+        try
+        {
+            var dialog = new RecoveryWindow(recovery) { Owner = this };
+            if (dialog.ShowDialog() != true || dialog.SelectedId == null) { RefreshRecovery(); return; }
+            operation = RetryRecoveryAsync(dialog.SelectedId);
+            await operation;
+        }
+        catch (Exception ex) { AppLog.Write("recovery.open.failed", ex); SetStatus("No se pudo abrir la recuperación", ex.Message); }
+    }
+    private async Task RetryRecoveryAsync(string id)
+    {
+        busy = true; SettingsPanel.IsEnabled = false; target = IntPtr.Zero;
+        try
+        {
+            SetStatus("Recuperando dictado", "La copia se conserva si vuelve a fallar. Puedes probar otro modelo o desactivar GPU.");
+            var audio = await Task.Run(() => recovery.ReadAudio(id));
+            using var wave = new NAudio.Wave.WaveFileReader(new System.IO.MemoryStream(audio));
+            await CompleteDictationAsync(audio, wave.TotalTime.TotalSeconds, id);
+        }
+        catch (OperationCanceledException) when (exiting) { }
+        catch (Exception ex) { AppLog.Write("recovery.retry.failed", ex); SetStatus("La copia sigue guardada", FriendlyError(ex)); }
+        finally { busy = false; SettingsPanel.IsEnabled = true; overlay.Hide(); RefreshRecovery(); }
+    }
+    internal async Task VerifyRecoveryFailureForSmokeAsync()
+    {
+        // Only called by --recovery-smoke-test, whose Storage and recovery folder are isolated.
+        bool loadFailed = false;
+        try { await transcriber.PrepareAsync(storage.ModelPath, false, CancellationToken.None); }
+        catch (Whisper.net.WhisperModelLoadException) { loadFailed = true; }
+        if (!loadFailed || recorder != null) throw new InvalidOperationException("Preflight did not reject unavailable model before recording.");
+        using (var backup = recovery.Begin())
+        {
+            backup.Append(new byte[32000], 32000);
+            activeRecoveryId = backup.Id;
+        }
+        storage.Settings.UseGpu = false;
+        await RetryRecoveryAsync(activeRecoveryId!);
+        if (busy || !SettingsPanel.IsEnabled || recovery.Entries().Count != 1)
+            throw new InvalidOperationException("Recovery failure did not unlock controls or retain audio.");
+        var paths = (AppContext.GetData("NATIVE_DLL_SEARCH_DIRECTORIES") as string ?? "").Split(System.IO.Path.PathSeparator);
+        var dependency = paths.Select(p => System.IO.Path.Combine(p, "Accessibility.dll")).FirstOrDefault(System.IO.File.Exists);
+        if (dependency != null)
+        {
+            bool denied = false;
+            try { System.IO.File.Delete(dependency); } catch (System.IO.IOException) { denied = true; }
+            if (!denied) throw new InvalidOperationException("Extracted dependency was not protected.");
+        }
+        AppLog.Write("recovery.smoke.passed");
+    }
+    internal void ReportUiError(Exception ex)
+    {
+        AppLog.Write("ui.failed", ex);
+        SetStatus("No se pudo completar esa acción", "La aplicación sigue abierta. Los audios pendientes están en Recuperar dictados.");
     }
     private void RecordingFailed(Exception ex)
     {
         if (busy || exiting || recorder == null) return;
+        AppLog.Write("recording.failed", ex);
         timer.Stop(); duration.Stop(); recorder.Dispose(); recorder = null;
-        SettingsPanel.IsEnabled = true; overlay.Hide(); SetStatus("Micrófono interrumpido", ex.Message); ShowMain();
+        RefreshRecovery();
+        SettingsPanel.IsEnabled = true; overlay.Hide(); SetStatus("Grabación interrumpida", ex.Message + " Los fragmentos guardados están en Recuperar dictados."); ShowMain();
     }
     private async Task ShowOverlayMessage(string text)
     {
@@ -190,8 +282,8 @@ public partial class MainWindow : Window
         await Task.Delay(1700);
         if (version == overlayVersion && !exiting) overlay.Hide();
     }
-    private static string FriendlyError(Exception ex) => ex is DllNotFoundException || ex.Message.Contains("native", StringComparison.OrdinalIgnoreCase)
-        ? "No se pudo cargar el motor local. Instala Microsoft Visual C++ Redistributable 2022 x64 y vuelve a intentarlo. " + ex.Message
+    private static string FriendlyError(Exception ex) => ex is DllNotFoundException or System.IO.FileNotFoundException
+        ? "No se pudo cargar un archivo del motor. Cierra Notaker desde la bandeja y vuelve a abrirlo para restaurar sus dependencias. Tu copia de audio pendiente se conserva."
         : ex.Message;
     private async void Setup_Click(object sender, RoutedEventArgs e)
     {

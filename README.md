@@ -143,3 +143,13 @@ Activa **Iniciar Notaker con Windows** en la ventana principal. Notaker se abrir
 El registro es para tu usuario y no requiere administrador. Conserva el ejecutable en su carpeta. Si lo mueves, desmarca y vuelve a marcar la opción desde la nueva ubicación. Las actualizaciones dentro de Notaker conservan esa ruta. Las vistas de prueba no modifican el inicio.
 
 La integración usa [Run de Windows](https://learn.microsoft.com/en-us/windows/win32/setupapi/run-and-runonce-registry-keys), reconocido por las [aplicaciones de arranque](https://learn.microsoft.com/en-us/windows/win32/w8cookbook/startup-apps). Windows puede retrasar el lanzamiento mientras inicia la sesión.
+
+## Recuperación de dictados y diagnósticos
+
+Desde 0.9.0 se guarda una copia cifrada del audio por fragmentos mientras grabas, en `%LOCALAPPDATA%\Notaker\recovery`. El cifrado DPAPI permite leerla al mismo usuario de Windows. Al pulsar **Recuperar dictados**, puedes reintentar con el modelo elegido en la pantalla principal o exportar un WAV. La exportación es una copia sin cifrar elegida expresamente por el usuario.
+
+Los pendientes se conservan hasta recuperarlos o eliminarlos. La copia temporal se borra cuando el texto se copia al portapapeles o se guarda correctamente en el historial. Este respaldo funciona también con el historial desactivado. Un cierre abrupto puede perder el fragmento que todavía no se haya escrito, pero los fragmentos completos anteriores siguen disponibles. No permite recuperar audios perdidos antes de esta versión.
+
+Notaker comprueba el modelo antes de abrir el micrófono. Espera a que el indicador cambie de **Preparando · aún no graba** a **Escuchando** antes de hablar.
+
+Los registros están en `%LOCALAPPDATA%\Notaker\logs\notaker.log`, con rotación al superar aproximadamente 1 MB y una copia anterior. Incluyen etapa, versión y datos estructurales de excepción. No incluyen contenido dictado ni claves. Las dependencias del EXE extraídas en temporales se mantienen abiertas con acceso compartido de lectura para impedir su borrado mientras Notaker funciona.
