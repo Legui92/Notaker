@@ -18,7 +18,7 @@ public partial class MainWindow : Window
     private readonly StartupRegistration? startup;
     private readonly System.Drawing.Icon brandIcon;
     private readonly Transcriber transcriber = new();
-    private readonly TextPolisher polisher = new();
+    private readonly TextPolisher polisher;
     private readonly DictationOverlay overlay = new();
     private readonly TrayIcon tray;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
@@ -32,12 +32,14 @@ public partial class MainWindow : Window
     private bool capturingShortcut;
     private DictationShortcut? pendingShortcut;
     private Task? operation;
+    private CancellationTokenSource? polishCancellation;
     private string? lastText;
     private Dictation? lastDictation;
     private long overlayVersion;
 
-    public MainWindow(string? dataRoot = null)
+    public MainWindow(string? dataRoot = null, TextPolisher? textPolisher = null)
     {
+        polisher = textPolisher ?? new TextPolisher();
         storage = new Storage(dataRoot);
         recovery = new RecoveryStore(storage.Root);
         InitializeComponent();
@@ -45,7 +47,7 @@ public partial class MainWindow : Window
         if (dataRoot == null && Environment.ProcessPath is { } executable) startup = new StartupRegistration(executable);
         RefreshStartup();
         Activated += (_, _) => RefreshStartup();
-        using (var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/notaker.ico")).Stream)
+        using (var iconStream = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Notaker;component/Assets/notaker.ico")).Stream)
         using (var icon = new System.Drawing.Icon(iconStream)) brandIcon = (System.Drawing.Icon)icon.Clone();
         AppVersionLabel.Text = "NOTAKER / WINDOWS · " + UpdateService.VersionLabel;
         LanguageBox.SelectedIndex = storage.Settings.Language == "mixed" ? 3 : storage.Settings.Language == "es" ? 1 : storage.Settings.Language == "en" ? 2 : 0;
@@ -179,12 +181,32 @@ public partial class MainWindow : Window
         if (storage.Settings.CleanWithAi)
         {
             overlay.Update("Puliendo tu escritura…", busy: true);
-            SetStatus("Dando forma a tus palabras", "DeepSeek está limpiando muletillas y puntuación, conservando el contenido.");
+            SetStatus("Puliendo escritura", "La IA tiene hasta 45 segundos. Puedes usar el texto original sin esperar.");
+            using var polishRequest = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            polishCancellation = polishRequest;
+            UseOriginalButton.Visibility = Visibility.Visible;
+            AppLog.Write("polish.started");
             var polishWatch = Stopwatch.StartNew();
-            try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, lifetime.Token); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
+            try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, polishRequest.Token); AppLog.Write("polish.completed"); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
             catch (OperationCanceledException) when (exiting) { throw; }
-            catch (Exception ex) { polishWarning = "Se conservó el texto original. La limpieza con IA falló: " + ex.Message; }
-            finally { polishSeconds = polishWatch.Elapsed.TotalSeconds; }
+            catch (OperationCanceledException) when (polishRequest.IsCancellationRequested)
+            {
+                text = rawText;
+                polishWarning = "Se usó el texto original sin esperar a la IA.";
+                AppLog.Write("polish.skipped");
+            }
+            catch (Exception ex)
+            {
+                text = rawText;
+                polishWarning = "Se conservó el texto original. " + ex.Message;
+                AppLog.Write(ex is TimeoutException ? "polish.timeout" : "polish.failed", ex);
+            }
+            finally
+            {
+                polishSeconds = polishWatch.Elapsed.TotalSeconds;
+                polishCancellation = null;
+                UseOriginalButton.Visibility = Visibility.Collapsed;
+            }
         }
         if (exiting) return;
         lastText = text;
@@ -206,6 +228,7 @@ public partial class MainWindow : Window
         if (polishWarning != null) tray.ShowBalloonTip(5000, "Dictado sin limpieza de IA", polishWarning, Forms.ToolTipIcon.Warning);
         await ShowOverlayMessage(polishWarning != null ? "Texto original · IA no disponible" : pasted ? "✓ Texto enviado" : copied ? "✓ Copiado · usa Ctrl+V" : "Texto listo · abre Notaker");
     }
+    private void UseOriginal_Click(object sender, RoutedEventArgs e) => polishCancellation?.Cancel();
     private void RefreshRecovery()
     {
         try { RecoveryButton.Content = $"Recuperar dictados ({recovery.Entries().Count})"; }

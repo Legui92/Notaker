@@ -40,27 +40,38 @@ public sealed class TextPolisher : IDisposable
             stream = false,
             thinking = new { type = "disabled" }
         });
-        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
-        if (!response.IsSuccessStatusCode)
+        // ResponseHeadersRead ends HttpClient.Timeout at the headers. Keep the same
+        // deadline alive while reading the body as well (including keep-alive whitespace).
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(http.Timeout);
+        try
         {
-            var message = (int)response.StatusCode switch
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            if (!response.IsSuccessStatusCode)
             {
-                401 or 403 => "DeepSeek rechazó la clave o los permisos.",
-                402 => "La cuenta de DeepSeek no tiene saldo disponible.",
-                429 => "DeepSeek alcanzó su límite de solicitudes.",
-                _ => $"DeepSeek devolvió un error HTTP {(int)response.StatusCode}."
-            };
-            throw new HttpRequestException(message);
+                var message = (int)response.StatusCode switch
+                {
+                    401 or 403 => "DeepSeek rechazó la clave o los permisos.",
+                    402 => "La cuenta de DeepSeek no tiene saldo disponible.",
+                    429 => "DeepSeek alcanzó su límite de solicitudes.",
+                    _ => $"DeepSeek devolvió un error HTTP {(int)response.StatusCode}."
+                };
+                throw new HttpRequestException(message);
+            }
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(deadline.Token), cancellationToken: deadline.Token);
+            var choice = document.RootElement.GetProperty("choices")[0];
+            if (choice.GetProperty("finish_reason").GetString() != "stop") throw new InvalidOperationException("La limpieza no terminó; se conservará la transcripción original.");
+            var result = DictationText.CleanArtifacts(choice.GetProperty("message").GetProperty("content").GetString() ?? "");
+            if (string.IsNullOrWhiteSpace(result)) throw new InvalidOperationException("DeepSeek no devolvió texto; se conservará la transcripción original.");
+            // Reject dramatic shrinkage/expansion instead of silently losing a dictation.
+            if (text.Length > 160 && (result.Length < text.Length * 0.55 || result.Length > text.Length * 1.8))
+                throw new InvalidOperationException("La edición cambió demasiado el texto; se conservará el original.");
+            return result;
         }
-        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(token), cancellationToken: token);
-        var choice = document.RootElement.GetProperty("choices")[0];
-        if (choice.GetProperty("finish_reason").GetString() != "stop") throw new InvalidOperationException("La limpieza no terminó; se conservará la transcripción original.");
-        var result = DictationText.CleanArtifacts(choice.GetProperty("message").GetProperty("content").GetString() ?? "");
-        if (string.IsNullOrWhiteSpace(result)) throw new InvalidOperationException("DeepSeek no devolvió texto; se conservará la transcripción original.");
-        // Reject dramatic shrinkage/expansion instead of silently losing a dictation.
-        if (text.Length > 160 && (result.Length < text.Length * 0.55 || result.Length > text.Length * 1.8))
-            throw new InvalidOperationException("La edición cambió demasiado el texto; se conservará el original.");
-        return result;
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException("La IA no terminó en 45 segundos. Se conservará el texto original.");
+        }
     }
     public void Dispose() => http.Dispose();
 }

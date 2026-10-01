@@ -29,3 +29,7 @@ La bandeja usa `Shell_NotifyIcon` con un GUID propio. El aviso normal de segundo
 ### Recuperación — 0.9.0
 
 Acceso **Recuperar dictados** encima de Estadísticas en la barra lateral. Reutiliza fondo oscuro y componentes existentes. La ventana lista fechas, permite reintentar, exportar WAV y eliminar con confirmación. Indica que la exportación queda sin cifrar. El estado «Preparando · aún no graba» distingue explícitamente la inicialización de la escucha. Los controles vuelven a habilitarse tras una recuperación fallida. Captura de prueba con audio sintético revisada.
+
+### Espera de IA — 0.9.1
+
+Durante Puliendo escritura, mostrar el limite de espera y la accion secundaria Usar texto original en la tarjeta de estado, fuera del panel de ajustes deshabilitado. Mantener tema y estilos existentes. La accion conserva el texto y finaliza el dictado.
