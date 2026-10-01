@@ -22,6 +22,7 @@ void Check(bool value, string message)
 }
 try
 {
+    if (args.Length == 2 && args[0] == "--polish-desktop") { await PolishDesktopChecks.Run(root, args[1]); return 0; }
     if (args.Length == 5 && args[0] == "--benchmark")
     {
         Whisper.net.LibraryLoader.RuntimeOptions.RuntimeLibraryOrder = args[1] == "cpu"
@@ -40,6 +41,7 @@ try
     }
     if (args.Contains("--branding-desktop") || args.Contains("--branding-check")) BrandingChecks.Run(args.Contains("--branding-desktop"));
     AppLog.Configure(root);
+    await PolishTimeoutChecks.Run();
     RecoveryChecks.Run(root);
     StartupChecks.Run(root);
     var storage = new Storage(root);
