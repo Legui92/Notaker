@@ -26,8 +26,17 @@ internal static class PolishTimeoutChecks
     }
     internal sealed class StalledHandler : HttpMessageHandler
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StalledStream()) });
+        internal string? Reply;
+        internal int Calls;
+        internal string? LastBody;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Calls++;
+            LastBody = await request.Content!.ReadAsStringAsync(token);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = Reply == null
+                ? new StreamContent(new StalledStream())
+                : System.Net.Http.Json.JsonContent.Create(new { choices = new[] { new { finish_reason = "stop", message = new { content = Reply } } } }) };
+        }
     }
     private sealed class StalledStream : Stream
     {

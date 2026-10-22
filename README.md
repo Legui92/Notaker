@@ -15,6 +15,14 @@ Para cambiar el atajo, haz clic en el campo ATAJO GLOBAL, pulsa tu combinación 
 
 ## Precisión y muletillas
 
+### Transcribir mientras hablas (experimental, 0.10.0)
+
+Activa **Transcribir mientras hablo** en la ventana principal. Conserva tu modelo y vocabulario; adelanta reconocimiento local tras pausas de al menos 700 ms en fragmentos de al menos 30 segundos. No muestra ni pega resultados parciales. Al detenerte, termina el audio pendiente y hace la misma llamada opcional de limpieza con IA. En el historial, **Espera voz** mide solo la espera final; no el trabajo realizado durante la grabación.
+
+Solo procesa un fragmento a la vez, con dos en espera. Si el motor falla, se acumula trabajo o hay un fragmento de señal baja ambiguo, usa de nuevo el audio completo. El respaldo cifrado por grabación se conserva con el mismo mecanismo de recuperación. No corta voz continua por un límite arbitrario: sin pausas suficientes, la espera puede ser similar al modo anterior. El ruido ambiente en una cola silenciosa también puede activar la alternativa completa. Este modo puede cambiar el reconocimiento en los límites de las frases; compáralo con tu voz y Spanglish. Está desactivado inicialmente y no cambia el modelo ni añade llamadas de API.
+
+Para cambiar de pestaña sin esperar, desactiva **Pegar automáticamente al terminar** y usa Ctrl+V cuando quieras. El destino automático identifica una ventana de Windows, no una pestaña ni un campo persistente dentro del navegador.
+
 Whisper.net ejecuta los modelos Whisper mediante whisper.cpp. No es un servicio de corrección editorial. Whisper puede omitir vacilaciones, pero **no garantiza eliminar muletillas, repeticiones ni corregir todos los errores**. Los modelos mayores suelen mejorar la precisión con más consumo de memoria y tiempo de procesamiento. Prueba los modelos con tu voz y vocabulario. Large v3 Turbo (8 bits, 834 MiB) y Large v3 completo (2,9 GiB) se ejecutan localmente: no añaden gasto de API, pero consumen más RAM y tiempo de CPU. Las instalaciones nuevas proponen Turbo; actualizar conserva el modelo elegido anteriormente.
 
 En **Escritura con IA y vocabulario personal** puedes activar la limpieza con DeepSeek e introducir tu clave. El modelo de texto predeterminado es `deepseek-flash`, configurable. El flujo es Whisper → edición de texto → pegado. El editor recibe instrucciones de quitar muletillas, puntuar y formar párrafos o listas cuando corresponda, conservando idioma y significado. La corrección conserva explícitamente el spanglish, evita adivinar palabras ambiguas y elimina los caracteres Braille espurios antes y después de la IA. Mantiene una sola llamada al modelo configurado, sin razonamiento; el importe exacto depende de los tokens del dictado y la respuesta. Como cualquier LLM, puede equivocarse: la transcripción original permanece accesible desde **Corregir → Ver transcripción original**. Respuestas vacías, truncadas, errores de red y fallos de autenticación hacen que se conserve el texto original.
@@ -27,7 +35,7 @@ Para activar la IA: añade la clave, pulsa **Probar conexión**, marca la limpie
 
 ## Datos y límites
 
-- Audio en memoria durante el dictado; no se guarda como archivo ni se envía a servicios externos.
+- Audio en memoria y en un respaldo local cifrado por grabación para recuperación; no se envía a servicios externos. Exportar audio crea un WAV sin cifrar por petición del usuario.
 - Al activar la limpieza, el texto del dictado y el vocabulario se envían a DeepSeek, con el coste y las políticas de ese proveedor. La clave se cifra con DPAPI para la cuenta actual de Windows. Nunca se guarda en texto plano.
 - Ajustes, modelos, vocabulario e historial: `%LOCALAPPDATA%\Notaker`.
 - Historial local **sin cifrado**, hasta 200 dictados. Se puede desactivar o borrar desde la ventana. Desactivarlo no borra entradas anteriores.
@@ -35,7 +43,7 @@ Para activar la IA: añade la clave, pulsa **Probar conexión**, marca la limpie
 - El portapapeles se sustituye por el dictado. Si tienes sincronización de portapapeles de Windows activada, se aplica la configuración de Windows.
 - Límite de 10 minutos por grabación. Grabaciones sin suficiente nivel de audio se descartan para reducir resultados inventados sobre silencio. El umbral de energía no es un detector neuronal de voz: ruido fuerte puede producir texto incorrecto y una voz muy baja puede descartarse.
 - Windows puede impedir el pegado en aplicaciones elevadas, pantallas seguras o campos que bloqueen pegar. El envío de teclas no demuestra que la aplicación destino haya aceptado el texto.
-- No se incluye inicio automático, firma de código, instalador, transcripción en vivo ni aprendizaje de correcciones externas.
+- No se incluye firma de código ni aprendizaje de correcciones externas. El modo experimental adelanta reconocimiento durante la captura, pero no inserta texto en vivo.
 
 ## Requisitos
 
