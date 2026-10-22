@@ -26,7 +26,8 @@ internal static class PolishDesktopChecks
             settings.Settings.CleanWithAi = true; settings.Settings.AutoPaste = false;
             settings.Settings.ProtectedApiKey = SecretStore.Protect("synthetic"); settings.SaveSettings();
             var recovery = new RecoveryStore(root);
-            using var polisher = new TextPolisher(new PolishTimeoutChecks.StalledHandler());
+            var handler = new PolishTimeoutChecks.StalledHandler();
+            using var polisher = new TextPolisher(handler);
             var client = (HttpClient)typeof(TextPolisher).GetField("http", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(polisher)!;
             client.Timeout = TimeSpan.FromSeconds(2);
             var window = new MainWindow(root, polisher);
@@ -57,7 +58,36 @@ internal static class PolishDesktopChecks
                         if (new Storage(root).History[0].Text != raw) throw new Exception("Original text was lost");
                         Console.WriteLine("PASS: recovery " + (attempt == 0 ? "timeout" : "manual skip") + " delivers original text and unlocks controls");
                     }
-
+                    const string liveText = "Mañana revisamos el pull request. Keep this sentence.";
+                    var live = new LiveTranscription((_, _) => Task.FromResult(liveText), CancellationToken.None);
+                    live.Append(new byte[] { 1, 0, 2, 0 }, 4, .1f);
+                    typeof(MainWindow).GetField("liveTranscription", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, live);
+                    string liveId;
+                    using (var capture = recovery.Begin()) { capture.Append(new byte[32000], 32000); liveId = capture.Id; }
+                    var complete = (Task)typeof(MainWindow).GetMethod("CompleteDictationAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(window, [Array.Empty<byte>(), 20.0, liveId])!;
+                    await complete.WaitAsync(TimeSpan.FromSeconds(15));
+                    var delivered = new Storage(root).History[0];
+                    if (delivered.Text != liveText || !delivered.RecognitionDuringRecording || recovery.Entries().Count != 0)
+                        throw new Exception("Live result did not survive AI timeout/history/recovery completion");
+                    Console.WriteLine("PASS: live result survives AI timeout, records final-wait mode and completes recovery lifecycle");
+                    await live.DisposeAsync();
+                    handler.Reply = "Texto pulido de prueba. Keep the pull request.";
+                    var callsBefore = handler.Calls;
+                    var second = new LiveTranscription((_, _) => Task.FromResult(liveText), CancellationToken.None);
+                    second.Append(new byte[] { 1, 0 }, 2, .1f);
+                    typeof(MainWindow).GetField("liveTranscription", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, second);
+                    using (var capture = recovery.Begin()) { capture.Append(new byte[32000], 32000); liveId = capture.Id; }
+                    complete = (Task)typeof(MainWindow).GetMethod("CompleteDictationAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+                        .Invoke(window, [Array.Empty<byte>(), 20.0, liveId])!;
+                    await complete.WaitAsync(TimeSpan.FromSeconds(10));
+                    using var requestJson = System.Text.Json.JsonDocument.Parse(handler.LastBody!);
+                    using var inputJson = System.Text.Json.JsonDocument.Parse(requestJson.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+                    delivered = new Storage(root).History[0];
+                    if (handler.Calls != callsBefore + 1 || inputJson.RootElement.GetProperty("dictated_text").GetString() != liveText
+                        || delivered.Text != handler.Reply || delivered.OriginalText != liveText)
+                        throw new Exception("Live mode skipped or duplicated the final AI call");
+                    Console.WriteLine("PASS: live mode makes exactly one final AI request and preserves polished and original text (mock HTTP)");
                 }
                 catch (Exception ex) { failure = ex; }
                 finally { await window.ExitAsync(); }

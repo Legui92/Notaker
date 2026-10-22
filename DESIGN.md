@@ -33,3 +33,7 @@ Acceso **Recuperar dictados** encima de Estadísticas en la barra lateral. Reuti
 ### Espera de IA — 0.9.1
 
 Durante Puliendo escritura, mostrar el limite de espera y la accion secundaria Usar texto original en la tarjeta de estado, fuera del panel de ajustes deshabilitado. Mantener tema y estilos existentes. La accion conserva el texto y finaliza el dictado.
+
+### Reconocimiento durante captura — 0.10.0
+
+Ajuste opcional «Transcribir mientras hablo (experimental)» junto al pegado, con explicación de recursos y respaldo. Mantener controles y paleta existentes. Mostrar cantidad de fragmentos terminados durante la captura, sin texto parcial. El historial distingue «Espera voz» para la espera final del modo anticipado. Explicar junto al pegado que cambiar de pestaña requiere desactivar el pegado automático y usar Ctrl+V.

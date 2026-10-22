@@ -16,6 +16,7 @@ public sealed class Recorder : IDisposable
     public float Level { get; private set; }
     public bool HasSpeech => voicedBuffers >= 3;
     public event Action<Exception>? Failed;
+    public event Action<byte[], int, float>? AudioAvailable;
 
     public Recorder(int device, RecoveryStore.Capture? backup = null)
     {
@@ -37,6 +38,7 @@ public sealed class Recorder : IDisposable
             }
             Level = (float)Math.Sqrt(squares / Math.Max(1, e.BytesRecorded / 2));
             if (Level > 0.006) Interlocked.Increment(ref voicedBuffers);
+            AudioAvailable?.Invoke(e.Buffer, e.BytesRecorded, Level);
             // Bound memory even if the UI thread is temporarily blocked (10 minutes).
             if (Interlocked.Increment(ref bufferCount) >= 6000) input.StopRecording();
         };
