@@ -24,7 +24,7 @@ internal static class LiveTranscriptionChecks
     public static async Task Run(string root)
     {
         var storage = new Storage(root);
-        Check(!storage.Settings.TranscribeWhileRecording, "Existing installations keep batch mode until opted in");
+        Check(storage.Settings.TranscribeWhileRecording, "Live transcription is enabled when no preference was saved");
         storage.Settings.TranscribeWhileRecording = true; storage.SaveSettings();
         Check(new Storage(root).Settings.TranscribeWhileRecording, "Live mode preference persists");
         storage.Add(new Dictation("synthetic", DateTime.Now, 20) { RecognitionDuringRecording = true, RecognitionSeconds = .5 });

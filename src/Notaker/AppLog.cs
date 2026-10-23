@@ -8,7 +8,7 @@ public static class AppLog
     private static readonly object Gate = new();
     private static string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Notaker");
     public static void Configure(string path) => root = path;
-    public static void Write(string stage, Exception? error = null)
+    public static void Write(string stage, Exception? error = null, double? elapsedMs = null, bool? succeeded = null, double? responseHeadersMs = null)
     {
         try
         {
@@ -19,6 +19,7 @@ public static class AppLog
                 if (File.Exists(path) && new FileInfo(path).Length > 1_000_000) File.Move(path, path + ".previous", true);
                 // Exception messages may contain dictated text or credentials. Only structural diagnostics.
                 File.AppendAllText(path, JsonSerializer.Serialize(new { utc = DateTime.UtcNow, version = UpdateService.VersionLabel, stage,
+                    elapsedMs, succeeded, responseHeadersMs,
                     type = error?.GetType().FullName, hresult = error?.HResult,
                     frames = error == null ? null : new System.Diagnostics.StackTrace(error, false).GetFrames()?.Select(f => f.GetMethod()?.DeclaringType?.FullName + "." + f.GetMethod()?.Name).ToArray() }) + Environment.NewLine);
             }
