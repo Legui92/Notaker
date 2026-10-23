@@ -27,7 +27,7 @@ public sealed class Preferences
     public bool TrackStatistics { get; set; } = true;
     public bool AutoPaste { get; set; } = true;
     public bool UseGpu { get; set; } = true;
-    public bool TranscribeWhileRecording { get; set; }
+    public bool TranscribeWhileRecording { get; set; } = true;
     public bool CleanWithAi { get; set; }
     public bool LearnVocabulary { get; set; } = true;
     public string ApiModel { get; set; } = "deepseek-flash";

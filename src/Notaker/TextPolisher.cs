@@ -16,11 +16,6 @@ public static class SecretStore
 public sealed class TextPolisher : IDisposable
 {
     private readonly HttpClient http;
-    // UTF-8 bytes give conservative headroom for accents, code-switching and
-    // punctuation. Preserve the existing ceiling for long dictations. This is
-    // an output bound, not a guarantee of lower latency or billed token usage.
-    internal static int OutputTokenBudget(string text) =>
-        (int)Math.Clamp((long)Encoding.UTF8.GetByteCount(text) + 256, 512, 8192);
     public TextPolisher(HttpMessageHandler? handler = null)
     {
         http = handler == null ? new HttpClient() : new HttpClient(handler);
@@ -41,7 +36,7 @@ public sealed class TextPolisher : IDisposable
                 new { role = "user", content = JsonSerializer.Serialize(new { dictated_text = text, spelling_hints = PersonalVocabulary.Normalize(vocabulary) }) }
             },
             temperature = 0,
-            max_tokens = OutputTokenBudget(text),
+            max_tokens = 8192,
             stream = false,
             thinking = new { type = "disabled" }
         });
@@ -49,9 +44,13 @@ public sealed class TextPolisher : IDisposable
         // deadline alive while reading the body as well (including keep-alive whitespace).
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(http.Timeout);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        double? headersMs = null;
+        var succeeded = false;
         try
         {
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+            headersMs = watch.Elapsed.TotalMilliseconds;
             if (!response.IsSuccessStatusCode)
             {
                 var message = (int)response.StatusCode switch
@@ -71,11 +70,17 @@ public sealed class TextPolisher : IDisposable
             // Reject dramatic shrinkage/expansion instead of silently losing a dictation.
             if (text.Length > 160 && (result.Length < text.Length * 0.55 || result.Length > text.Length * 1.8))
                 throw new InvalidOperationException("La edición cambió demasiado el texto; se conservará el original.");
+            succeeded = true;
             return result;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested && deadline.IsCancellationRequested)
         {
             throw new TimeoutException("La IA no terminó en 45 segundos. Se conservará el texto original.");
+        }
+        finally
+        {
+            // Headers are not a first-token measurement: this request is non-streaming.
+            AppLog.Write("polish.timing", elapsedMs: watch.Elapsed.TotalMilliseconds, succeeded: succeeded, responseHeadersMs: headersMs);
         }
     }
     public void Dispose() => http.Dispose();

@@ -22,6 +22,7 @@ void Check(bool value, string message)
 }
 try
 {
+    if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));
     if (args.Length == 2 && args[0] == "--polish-desktop") { await PolishDesktopChecks.Run(root, args[1]); return 0; }
@@ -44,9 +45,26 @@ try
     if (args.Contains("--branding-desktop") || args.Contains("--branding-check")) BrandingChecks.Run(args.Contains("--branding-desktop"));
     AppLog.Configure(root);
     await PolishTimeoutChecks.Run();
+    using (var timing = System.Text.Json.JsonDocument.Parse(File.ReadLines(Path.Combine(root, "logs", "notaker.log")).Last()))
+    {
+        var metric = timing.RootElement;
+        Check(metric.GetProperty("stage").GetString() == "polish.timing" && !metric.GetProperty("succeeded").GetBoolean()
+            && metric.GetProperty("elapsedMs").GetDouble() >= metric.GetProperty("responseHeadersMs").GetDouble(),
+            "Stalled response records failed total time separately from received headers");
+    }
     RecoveryChecks.Run(root);
     StartupChecks.Run(root);
     var storage = new Storage(root);
+    Check(storage.Settings.TranscribeWhileRecording, "New installations enable transcription during recording");
+    var legacySettingsRoot = Path.Combine(root, "legacy-live-default");
+    Directory.CreateDirectory(legacySettingsRoot);
+    File.WriteAllText(Path.Combine(legacySettingsRoot, "settings.json"), "{\"Language\":\"mixed\"}");
+    var legacySettings = new Storage(legacySettingsRoot);
+    Check(legacySettings.Settings.TranscribeWhileRecording && legacySettings.Settings.Language == "mixed", "Missing live preference adopts enabled default without resetting language");
+    legacySettings.Settings.TranscribeWhileRecording = false; legacySettings.SaveSettings();
+    Check(!new Storage(legacySettingsRoot).Settings.TranscribeWhileRecording, "Explicitly disabled live transcription survives settings reload");
+    legacySettings.Settings.TranscribeWhileRecording = true; legacySettings.SaveSettings();
+    Check(new Storage(legacySettingsRoot).Settings.TranscribeWhileRecording, "Enabled live transcription survives settings reload");
     storage.Settings.Language = "es";
     storage.Settings.Hotkey = 2;
     storage.SaveSettings();
@@ -115,7 +133,7 @@ try
         var prompt = data.GetProperty("messages")[0].GetProperty("content").GetString()!;
         Check(prompt.Contains("Spanglish/code-switching") && prompt.Contains("Do not translate") && prompt.Contains("do not guess"), "Editor preserves mixed language and avoids guessing ambiguous words");
         Check(data.GetProperty("model").GetString() == "deepseek-flash" && data.GetProperty("thinking").GetProperty("type").GetString() == "disabled", "Cleanup keeps Flash without reasoning cost");
-        Check(data.GetProperty("max_tokens").GetInt32() == 512, "Short dictation sends the bounded output budget to the provider");
+        Check(data.GetProperty("max_tokens").GetInt32() == 8192, "Cleanup preserves the full output allowance after the inconclusive adaptive-budget experiment");
         using var input = System.Text.Json.JsonDocument.Parse(data.GetProperty("messages")[1].GetProperty("content").GetString()!);
         Check(input.RootElement.GetProperty("dictated_text").GetString() == "Revisa el pull request", "Artifacts are removed before sending text to AI");
         return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Revisa el⡀ pull request.\"}}]}") };
@@ -123,10 +141,6 @@ try
     {
         Check(await mixedPolisher.PolishAsync("Revisa el⡀ pull request", "mock", "deepseek-flash", [], CancellationToken.None) == "Revisa el pull request." && polishRequests == 1, "One API call per cleanup; output artifacts are removed");
     }
-    Check(TextPolisher.OutputTokenBudget("corto") == 512, "Short cleanup requests keep a bounded minimum output budget");
-    Check(TextPolisher.OutputTokenBudget(new string('a', 6000)) >= 6000, "Long dictation keeps conservative room for the full text");
-    Check(TextPolisher.OutputTokenBudget(new string('á', 1000)) > TextPolisher.OutputTokenBudget(new string('a', 1000)), "Unicode text receives byte-aware output headroom");
-    Check(TextPolisher.OutputTokenBudget(new string('a', 20000)) == 8192, "Very long cleanup requests preserve the previous output ceiling");
     using (var shrinkingPolisher = new TextPolisher(new StubHttp((_, _) => new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Resumen.\"}}]}") })))
     {
         try { await shrinkingPolisher.PolishAsync(new string('a', 200), "mock", "deepseek-flash", [], CancellationToken.None); throw new Exception("Destructive summary accepted"); }
@@ -158,6 +172,11 @@ try
     })))
     {
         Check(await polisher.PolishAsync("Eh, enviar el informe mañana.", "mock-key", "deepseek-flash", ["Notaker"], CancellationToken.None) == "Enviar el informe mañana.", "Polisher returns completed edited text (mock provider)");
+        using var timing = System.Text.Json.JsonDocument.Parse(File.ReadLines(Path.Combine(root, "logs", "notaker.log")).Last());
+        Check(timing.RootElement.GetProperty("succeeded").GetBoolean() && timing.RootElement.GetProperty("elapsedMs").GetDouble() >= 0,
+            "Completed cleanup records successful timing");
+        var log = File.ReadAllText(Path.Combine(root, "logs", "notaker.log"));
+        Check(!log.Contains("mock-key") && !log.Contains("enviar el informe") && !log.Contains("Texto de prueba"), "Timing logs omit keys and dictated text");
     }
     foreach (var reason in new[] { "length", "content_filter" })
     {
@@ -188,6 +207,10 @@ try
         using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
         try { await engine.TranscribeAsync(args[0], [], "es", cancelled.Token); throw new Exception("Expected cancellation"); }
         catch (OperationCanceledException) { Check(true, "Cancelled transcription does not start inference"); }
+        var nativeLog = File.ReadAllText(Path.Combine(root, "logs", "notaker.log"));
+        Check(nativeLog.Contains("model.load.gpu.timing") && nativeLog.Contains("model.load.cpu.timing")
+            && nativeLog.Contains("recognition.gpu.timing") && nativeLog.Contains("recognition.cpu.timing"),
+            "Model load and recognition have separate GPU and CPU timing records");
     }
     StatisticsChecks.Run(root);
     await UpdateChecks.RunAsync();

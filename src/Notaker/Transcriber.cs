@@ -47,14 +47,19 @@ public sealed class Transcriber : IDisposable
     }
     private static WhisperFactory OpenFactory(string path, bool useGpu)
     {
-        var loaded = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = useGpu });
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var succeeded = false;
+        WhisperFactory? loaded = null;
         try
         {
+            loaded = WhisperFactory.FromPath(path, new WhisperFactoryOptions { UseGpu = useGpu });
             // FromPath is lazy: creating a processor forces the native model/context load.
             using var validation = loaded.CreateBuilder().Build();
+            succeeded = true;
             return loaded;
         }
-        catch { loaded.Dispose(); throw; }
+        catch { loaded?.Dispose(); throw; }
+        finally { AppLog.Write(useGpu ? "model.load.gpu.timing" : "model.load.cpu.timing", elapsedMs: watch.Elapsed.TotalMilliseconds, succeeded: succeeded); }
     }
     public static bool ModelExists(string path)
     {
@@ -98,20 +103,28 @@ public sealed class Transcriber : IDisposable
     public Task<string> TranscribeAsync(string model, byte[] wav, string language, CancellationToken token, string? vocabulary = null, bool useGpu = true) => Task.Run(async () =>
     {
         EnsureFactory(model, useGpu);
-        var builder = factory!.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
-            .WithTemperature(0);
-        builder.WithBeamSearchSamplingStrategy();
-        var prompt = language == "mixed" ? "Español e inglés. Spanish and English. " + vocabulary : vocabulary;
-        if (!string.IsNullOrWhiteSpace(prompt)) builder.WithPrompt(prompt);
-        using var processor = builder.Build();
-        using var stream = new MemoryStream(wav);
-        var text = new StringBuilder();
-        await foreach (var segment in processor.ProcessAsync(stream, token))
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var succeeded = false;
+        try
         {
-            var part = segment.Text.Trim();
-            if (part.Length > 0) { if (text.Length > 0) text.Append(' '); text.Append(part); }
+            var builder = factory!.CreateBuilder().WithLanguage(language == "mixed" ? "auto" : language)
+                .WithTemperature(0);
+            builder.WithBeamSearchSamplingStrategy();
+            var prompt = language == "mixed" ? "Español e inglés. Spanish and English. " + vocabulary : vocabulary;
+            if (!string.IsNullOrWhiteSpace(prompt)) builder.WithPrompt(prompt);
+            using var processor = builder.Build();
+            using var stream = new MemoryStream(wav);
+            var text = new StringBuilder();
+            await foreach (var segment in processor.ProcessAsync(stream, token))
+            {
+                var part = segment.Text.Trim();
+                if (part.Length > 0) { if (text.Length > 0) text.Append(' '); text.Append(part); }
+            }
+            var result = DictationText.CleanArtifacts(text.ToString());
+            succeeded = true;
+            return result;
         }
-        return DictationText.CleanArtifacts(text.ToString());
+        finally { AppLog.Write(UsingGpu ? "recognition.gpu.timing" : "recognition.cpu.timing", elapsedMs: watch.Elapsed.TotalMilliseconds, succeeded: succeeded); }
     }, token);
 
     public void Dispose() => factory?.Dispose();
