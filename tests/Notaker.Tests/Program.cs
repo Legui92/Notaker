@@ -115,6 +115,7 @@ try
         var prompt = data.GetProperty("messages")[0].GetProperty("content").GetString()!;
         Check(prompt.Contains("Spanglish/code-switching") && prompt.Contains("Do not translate") && prompt.Contains("do not guess"), "Editor preserves mixed language and avoids guessing ambiguous words");
         Check(data.GetProperty("model").GetString() == "deepseek-flash" && data.GetProperty("thinking").GetProperty("type").GetString() == "disabled", "Cleanup keeps Flash without reasoning cost");
+        Check(data.GetProperty("max_tokens").GetInt32() == 512, "Short dictation sends the bounded output budget to the provider");
         using var input = System.Text.Json.JsonDocument.Parse(data.GetProperty("messages")[1].GetProperty("content").GetString()!);
         Check(input.RootElement.GetProperty("dictated_text").GetString() == "Revisa el pull request", "Artifacts are removed before sending text to AI");
         return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Revisa el⡀ pull request.\"}}]}") };
@@ -122,6 +123,10 @@ try
     {
         Check(await mixedPolisher.PolishAsync("Revisa el⡀ pull request", "mock", "deepseek-flash", [], CancellationToken.None) == "Revisa el pull request." && polishRequests == 1, "One API call per cleanup; output artifacts are removed");
     }
+    Check(TextPolisher.OutputTokenBudget("corto") == 512, "Short cleanup requests keep a bounded minimum output budget");
+    Check(TextPolisher.OutputTokenBudget(new string('a', 6000)) >= 6000, "Long dictation keeps conservative room for the full text");
+    Check(TextPolisher.OutputTokenBudget(new string('á', 1000)) > TextPolisher.OutputTokenBudget(new string('a', 1000)), "Unicode text receives byte-aware output headroom");
+    Check(TextPolisher.OutputTokenBudget(new string('a', 20000)) == 8192, "Very long cleanup requests preserve the previous output ceiling");
     using (var shrinkingPolisher = new TextPolisher(new StubHttp((_, _) => new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Resumen.\"}}]}") })))
     {
         try { await shrinkingPolisher.PolishAsync(new string('a', 200), "mock", "deepseek-flash", [], CancellationToken.None); throw new Exception("Destructive summary accepted"); }
@@ -201,6 +206,7 @@ try
 catch (Exception ex)
 {
     Console.Error.WriteLine("FAIL: " + ex.Message);
+    Console.Error.WriteLine(ex.GetType().FullName + Environment.NewLine + ex.StackTrace);
     return 1;
 }
 finally

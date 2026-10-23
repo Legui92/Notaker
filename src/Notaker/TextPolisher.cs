@@ -16,6 +16,11 @@ public static class SecretStore
 public sealed class TextPolisher : IDisposable
 {
     private readonly HttpClient http;
+    // UTF-8 bytes give conservative headroom for accents, code-switching and
+    // punctuation. Preserve the existing ceiling for long dictations. This is
+    // an output bound, not a guarantee of lower latency or billed token usage.
+    internal static int OutputTokenBudget(string text) =>
+        (int)Math.Clamp((long)Encoding.UTF8.GetByteCount(text) + 256, 512, 8192);
     public TextPolisher(HttpMessageHandler? handler = null)
     {
         http = handler == null ? new HttpClient() : new HttpClient(handler);
@@ -36,7 +41,7 @@ public sealed class TextPolisher : IDisposable
                 new { role = "user", content = JsonSerializer.Serialize(new { dictated_text = text, spelling_hints = PersonalVocabulary.Normalize(vocabulary) }) }
             },
             temperature = 0,
-            max_tokens = 8192,
+            max_tokens = OutputTokenBudget(text),
             stream = false,
             thinking = new { type = "disabled" }
         });
