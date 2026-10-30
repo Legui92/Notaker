@@ -22,6 +22,7 @@ void Check(bool value, string message)
 }
 try
 {
+    if (args.Length == 3 && args[0] == "--physical-cancel") { await PolishDesktopChecks.Run(root,args[1],args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));

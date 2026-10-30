@@ -35,6 +35,8 @@ public partial class MainWindow : Window
     private DictationShortcut? pendingShortcut;
     private Task? operation;
     private CancellationTokenSource? polishCancellation;
+    private CancellationTokenSource? dictationCancellation;
+    private CancellationToken DictationToken => dictationCancellation?.Token ?? lifetime.Token;
     private string? lastText;
     private Dictation? lastDictation;
     private long overlayVersion;
@@ -46,6 +48,7 @@ public partial class MainWindow : Window
         storage = new Storage(dataRoot);
         recovery = new RecoveryStore(storage.Root);
         InitializeComponent();
+        overlay.CancelRequested += () => { if (dictationCancellation != null) { timer.Stop(); overlay.Update("Cancelando…", busy: true, canCancel: false); dictationCancellation.Cancel(); if (!busy) operation = CancelRecordingAsync(); } };
         RefreshRecovery();
         if (dataRoot == null && Environment.ProcessPath is { } executable) startup = new StartupRegistration(executable);
         RefreshStartup();
@@ -130,10 +133,14 @@ public partial class MainWindow : Window
                 target = Native.GetForegroundWindow();
                 if (target == handle) { SetStatus("Elige dónde escribir", "Sitúa el cursor en el editor, chat o documento de destino y pulsa el atajo."); return; }
                 busy = true; SettingsPanel.IsEnabled = false;
+                activeRecoveryId = null; // A new preflight must never discard a previous failed recording.
+                dictationCancellation?.Dispose();
+                dictationCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                 SetStatus("Preparando el modelo", "Comprobamos el motor antes de abrir el micrófono. Todavía no estamos grabando.");
                 overlay.Update("Preparando · aún no graba", busy: true);
                 AppLog.Write("dictation.preflight");
-                await transcriber.PrepareAsync(storage.ModelPath, storage.Settings.UseGpu, lifetime.Token);
+                await transcriber.PrepareAsync(storage.ModelPath, storage.Settings.UseGpu, DictationToken);
+                DictationToken.ThrowIfCancellationRequested();
                 if (exiting) return;
                 var backup = recovery.Begin(); activeRecoveryId = backup.Id;
                 try { recorder = new Recorder(storage.Settings.Microphone, backup); }
@@ -144,7 +151,7 @@ public partial class MainWindow : Window
                     var language = storage.Settings.Language;
                     var vocabulary = PersonalVocabulary.Prompt(storage.Vocabulary);
                     var useGpu = storage.Settings.UseGpu;
-                    liveTranscription = new LiveTranscription((wav, token) => transcriber.TranscribeAsync(model, wav, language, token, vocabulary, useGpu), lifetime.Token);
+                    liveTranscription = new LiveTranscription((wav, token) => transcriber.TranscribeAsync(model, wav, language, token, vocabulary, useGpu), DictationToken);
                     recorder.AudioAvailable += liveTranscription.Append;
                 }
                 recorder.Failed += ex => Dispatcher.BeginInvoke(new Action(() => RecordingFailed(ex)));
@@ -163,6 +170,7 @@ public partial class MainWindow : Window
             bool hasSpeech;
             try { audio = await captured.StopAsync(); hasSpeech = captured.HasSpeech; }
             finally { captured.Dispose(); recorder = null; }
+            DictationToken.ThrowIfCancellationRequested();
             if (!hasSpeech || duration.Elapsed.TotalSeconds < 0.5)
             {
                 SetStatus("No se detectó voz", "Comprueba el micrófono seleccionado y vuelve a intentarlo.");
@@ -171,6 +179,10 @@ public partial class MainWindow : Window
             await CompleteDictationAsync(audio, duration.Elapsed.TotalSeconds, activeRecoveryId!);
         }
         catch (OperationCanceledException) when (exiting) { }
+        catch (OperationCanceledException) when (dictationCancellation?.IsCancellationRequested == true)
+        {
+            await DiscardDictationAsync();
+        }
         catch (Exception ex)
         {
             AppLog.Write("dictation.failed", ex);
@@ -182,11 +194,12 @@ public partial class MainWindow : Window
         {
             if (recorder == null) await StopLiveTranscriptionAsync();
             busy = false; RefreshRecovery();
-            if (recorder == null) { SettingsPanel.IsEnabled = true; LiveText.Text = ""; }
+            if (recorder == null) { SettingsPanel.IsEnabled = true; LiveText.Text = ""; dictationCancellation?.Dispose(); dictationCancellation = null; }
         }
     }
     private async Task CompleteDictationAsync(byte[] audio, double seconds, string recoveryId)
     {
+        DictationToken.ThrowIfCancellationRequested();
         AppLog.Write("transcription.started");
         var recognitionWatch = Stopwatch.StartNew();
         var text = recovery.ReadText(recoveryId);
@@ -197,7 +210,9 @@ public partial class MainWindow : Window
             recognizedWhileRecording = text != null;
             AppLog.Write(text == null ? "live.fallback" : "live.completed");
         }
-        text ??= await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, lifetime.Token, PersonalVocabulary.Prompt(storage.Vocabulary), storage.Settings.UseGpu);
+        DictationToken.ThrowIfCancellationRequested();
+        text ??= await transcriber.TranscribeAsync(storage.ModelPath, audio, storage.Settings.Language, DictationToken, PersonalVocabulary.Prompt(storage.Vocabulary), storage.Settings.UseGpu);
+        DictationToken.ThrowIfCancellationRequested();
         recognitionWatch.Stop();
         double? polishSeconds = null;
         if (exiting) return;
@@ -208,15 +223,16 @@ public partial class MainWindow : Window
         int? aiWordEdits = null;
         if (storage.Settings.CleanWithAi)
         {
-            overlay.Update("Puliendo tu escritura…", busy: true);
+            overlay.Update("Puliendo escritura…", busy: true, canCancel: dictationCancellation != null);
             SetStatus("Puliendo escritura", "La IA tiene hasta 45 segundos. Puedes usar el texto original sin esperar.");
-            using var polishRequest = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+            using var polishRequest = CancellationTokenSource.CreateLinkedTokenSource(DictationToken);
             polishCancellation = polishRequest;
             UseOriginalButton.Visibility = Visibility.Visible;
             AppLog.Write("polish.started");
             var polishWatch = Stopwatch.StartNew();
             try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, polishRequest.Token); AppLog.Write("polish.completed"); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
             catch (OperationCanceledException) when (exiting) { throw; }
+            catch (OperationCanceledException) when (DictationToken.IsCancellationRequested) { throw; }
             catch (OperationCanceledException) when (polishRequest.IsCancellationRequested)
             {
                 text = rawText;
@@ -237,6 +253,8 @@ public partial class MainWindow : Window
             }
         }
         if (exiting) return;
+        DictationToken.ThrowIfCancellationRequested();
+        overlay.Update("Enviando texto…", busy: true, canCancel: false);
         lastText = text;
         lastDictation = new Dictation(text, DateTime.Now, seconds) { RecoveryId = recoveryId, OriginalText = rawText, RecognitionSeconds = recognitionWatch.Elapsed.TotalSeconds, RecognitionDuringRecording = recognizedWhileRecording, PolishSeconds = polishSeconds, AiWordEdits = aiWordEdits };
         string? saveWarning = null;
@@ -257,6 +275,32 @@ public partial class MainWindow : Window
         await ShowOverlayMessage(polishWarning != null ? "Texto original · IA no disponible" : pasted ? "✓ Texto enviado" : copied ? "✓ Copiado · usa Ctrl+V" : "Texto listo · abre Notaker");
     }
     private void UseOriginal_Click(object sender, RoutedEventArgs e) => polishCancellation?.Cancel();
+    private async Task CancelRecordingAsync()
+    {
+        busy = true; timer.Stop(); duration.Stop();
+        try
+        {
+            if (recorder != null) { try { await recorder.StopAsync(); } finally { recorder.Dispose(); recorder = null; } }
+            await DiscardDictationAsync();
+        }
+        catch (Exception ex) { AppLog.Write("dictation.cancel.failed", ex); overlay.Hide(); SetStatus("Dictado cancelado", "No se pegó texto. La copia pendiente sigue disponible en Recuperar dictados."); }
+        finally { await StopLiveTranscriptionAsync(); busy = false; SettingsPanel.IsEnabled = true; dictationCancellation?.Dispose(); dictationCancellation = null; RefreshRecovery(); }
+    }
+    private async Task DiscardDictationAsync()
+    {
+        timer.Stop(); duration.Stop();
+        await StopLiveTranscriptionAsync();
+        var cleanupFailed = false;
+        if (activeRecoveryId != null)
+        {
+            try { recovery.Delete(activeRecoveryId); activeRecoveryId = null; }
+            catch (Exception ex) { cleanupFailed = true; AppLog.Write("dictation.cancel.cleanup.failed", ex); }
+        }
+        overlay.Hide(); ++overlayVersion;
+        LiveText.Text = "";
+        SetStatus("Dictado cancelado", cleanupFailed ? "No se copió ni pegó texto. No se pudo eliminar la copia de Recuperar dictados." : "No se copió ni pegó texto.");
+        AppLog.Write("dictation.cancelled");
+    }
     private void RefreshRecovery()
     {
         try { RecoveryButton.Content = $"Recuperar dictados ({recovery.Entries().Count})"; }
@@ -330,13 +374,14 @@ public partial class MainWindow : Window
         timer.Stop(); duration.Stop(); recorder!.Dispose(); recorder = null;
         busy = true;
         await StopLiveTranscriptionAsync();
+        dictationCancellation?.Dispose(); dictationCancellation = null;
         busy = false;
         RefreshRecovery();
         SettingsPanel.IsEnabled = true; overlay.Hide(); SetStatus("Grabación interrumpida", ex.Message + " Los fragmentos guardados están en Recuperar dictados."); ShowMain();
     }
     private async Task ShowOverlayMessage(string text)
     {
-        var version = ++overlayVersion; overlay.Update(text);
+        var version = ++overlayVersion; overlay.Update(text, canCancel: false);
         await Task.Delay(1700);
         if (version == overlayVersion && !exiting) overlay.Hide();
     }
