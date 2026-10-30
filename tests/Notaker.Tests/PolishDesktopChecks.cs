@@ -10,7 +10,7 @@ using Notaker;
 
 internal static class PolishDesktopChecks
 {
-    public static Task Run(string root, string screenshot)
+    public static Task Run(string root, string screenshot, string? physicalModel = null)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var thread = new Thread(() =>
@@ -88,6 +88,60 @@ internal static class PolishDesktopChecks
                         || delivered.Text != handler.Reply || delivered.OriginalText != liveText)
                         throw new Exception("Live mode skipped or duplicated the final AI call");
                     Console.WriteLine("PASS: live mode makes exactly one final AI request and preserves polished and original text (mock HTTP)");
+                    await second.DisposeAsync();
+                    typeof(MainWindow).GetField("liveTranscription", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(window, null);
+                    var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var overlay = (Window)typeof(MainWindow).GetField("overlay", flags)!.GetValue(window)!;
+                    var update = overlay.GetType().GetMethod("Update", flags)!;
+                    foreach (var state in new[] { "Preparando · aún no graba", "Escuchando · 02:53", "Transcribiendo…", "Puliendo escritura…" })
+                    {
+                        update.Invoke(overlay, [state, .05f, !state.StartsWith("Escuchando"), true]);
+                        overlay.UpdateLayout();
+                        await overlay.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+                        await Task.Delay(30);
+                        var image = new RenderTargetBitmap((int)overlay.Width, (int)overlay.Height, 96,96,PixelFormats.Pbgra32); image.Render(overlay);
+                        var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(image));
+                        using var output = File.Create(screenshot + "." + (state.StartsWith("Escuchando") ? "listening" : state.StartsWith("Preparando") ? "preparing" : state.StartsWith("Transcribiendo") ? "transcribing" : "polishing") + ".png"); png.Save(output);
+                        if (overlay.Height > 44 || overlay.Width > 280) throw new Exception("Overlay is not compact");
+                    }
+                    Console.WriteLine("PASS: all four compact overlay states render at up to280x44");
+                    var historyCount = new Storage(root).History.Count;
+                    var cancelButton = (Button)overlay.GetType().GetField("cancel", flags)!.GetValue(overlay)!;
+                    for (var phase = 0; phase < 2; phase++)
+                    {
+                        using var cancellation = new CancellationTokenSource();
+                        typeof(MainWindow).GetField("dictationCancellation", flags)!.SetValue(window, cancellation);
+                        typeof(MainWindow).GetField("busy", flags)!.SetValue(window, true);
+                        using (var capture = recovery.Begin()) { capture.Append(new byte[32000],32000); liveId = capture.Id; }
+                        typeof(MainWindow).GetField("activeRecoveryId", flags)!.SetValue(window, liveId);
+                        if (phase == 0)
+                        {
+                            var pending = new LiveTranscription(async (_, token) => { await Task.Delay(Timeout.Infinite, token); return "Never delivered"; }, cancellation.Token);
+                            pending.Append(new byte[] {1,0},2,.1f);
+                            typeof(MainWindow).GetField("liveTranscription", flags)!.SetValue(window, pending);
+                        }
+                        else { recovery.SaveText(liveId, liveText); handler.Reply = null; }
+                        Clipboard.SetText("cancel-sentinel");
+                        var previousCalls = handler.Calls;
+                        complete = (Task)typeof(MainWindow).GetMethod("CompleteDictationAsync",flags)!.Invoke(window,[Array.Empty<byte>(),20.0,liveId])!;
+                        await Task.Delay(80);
+                        cancelButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        try { await complete.WaitAsync(TimeSpan.FromSeconds(3)); throw new Exception("Cancelled pipeline delivered"); }
+                        catch (OperationCanceledException) { }
+                        await (Task)typeof(MainWindow).GetMethod("DiscardDictationAsync",flags)!.Invoke(window,null)!;
+                        if (Clipboard.GetText() != "cancel-sentinel" || new Storage(root).History.Count != historyCount || recovery.Entries().Count != 0
+                            || handler.Calls != previousCalls + phase) throw new Exception("Cancelled dictation leaked output or an AI call");
+                        typeof(MainWindow).GetField("dictationCancellation", flags)!.SetValue(window,null);
+                        typeof(MainWindow).GetField("busy", flags)!.SetValue(window,false);
+                    }
+                    Console.WriteLine("PASS: overlay cancel drains live recognition and aborts AI without clipboard/history output or a new AI call");
+                    using (var capture = recovery.Begin()) { capture.Append(new byte[32000],32000); liveId = capture.Id; }
+                    typeof(MainWindow).GetField("activeRecoveryId", flags)!.SetValue(window,null);
+                    await (Task)typeof(MainWindow).GetMethod("DiscardDictationAsync",flags)!.Invoke(window,null)!;
+                    if (recovery.Entries().Count != 1) throw new Exception("Preflight cancel deleted an unrelated recovery");
+                    recovery.Delete(liveId);
+                    Console.WriteLine("PASS: cancelling before capture preserves previous recovery recordings");
+                    if (physicalModel != null) await PhysicalCancelChecks.Run(window,root,physicalModel);
                 }
                 catch (Exception ex) { failure = ex; }
                 finally { await window.ExitAsync(); }

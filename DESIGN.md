@@ -1,5 +1,9 @@
 # Notaker — identidad visual
 
+## Indicador compacto de dictado
+
+Cápsula morada oscura de44 px de alto,244 px durante escucha y280 px en procesamiento. Nivel de voz a izquierda, texto breve, punto y timer a derecha durante escucha, botón × con área30x30 para descartar. Preparación aclara «aún no graba». Transcripción y limpieza muestran actividad. «Cancelando» bloquea clics repetidos y espera a que termine el motor antes de permitir otro dictado. El indicador no activa ventana ni toma foco. El envío final ya iniciado no ofrece cancelación. Referencia de composición: Flow Bar de Wispr Flow, manteniendo la identidad de Notaker.
+
 Referencia canónica del diseño existente. El usuario pidió tema oscuro por defecto, morado y azul; esta vista conserva esa decisión.
 
 - Aplicación WPF para Windows. Segoe UI; títulos claros, métricas tabulares legibles, explicaciones breves en español.
