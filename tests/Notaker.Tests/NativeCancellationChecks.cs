@@ -48,6 +48,7 @@ internal static class NativeCancellationChecks
             .WithProgressHandler(_ => { if (Volatile.Read(ref segmentSeen) == 1) { blocked.TrySetResult(); release.Wait(TimeSpan.FromSeconds(10)); } }).Build();
         await using var stream = new MemoryStream(audio);
         await using var segments = processor.ProcessAsync(stream,cancellation.Token).GetAsyncEnumerator();
+        Task? disposal = null;
         try
         {
             if (!await segments.MoveNextAsync()) throw new Exception("No native segment available");
@@ -58,8 +59,10 @@ internal static class NativeCancellationChecks
             try { processor.Dispose(); throw new Exception("Native worker was not held while disposing"); }
             catch (Exception ex) when (ex.Message == "Cannot dispose while processing, please use DisposeAsync instead.")
             { Console.WriteLine("PASS: reproduced exact reported synchronous-disposal error with native worker still processing"); }
+            disposal = processor.DisposeAsync().AsTask();
+            if (disposal.IsCompleted) throw new Exception("Asynchronous disposal completed before native worker was released");
         }
-        finally { cancellation.Cancel(); release.Set(); await processor.DisposeAsync(); }
+        finally { cancellation.Cancel(); release.Set(); if (disposal != null) await disposal; else await processor.DisposeAsync(); }
         Console.WriteLine("PASS: asynchronous disposal waits for native worker before releasing its state");
     }
 }
