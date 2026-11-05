@@ -112,7 +112,8 @@ public sealed class Transcriber : IDisposable
             builder.WithBeamSearchSamplingStrategy();
             var prompt = language == "mixed" ? "Español e inglés. Spanish and English. " + vocabulary : vocabulary;
             if (!string.IsNullOrWhiteSpace(prompt)) builder.WithPrompt(prompt);
-            using var processor = builder.Build();
+            // Cancellation can end enumeration before the native worker releases its state.
+            await using var processor = builder.Build();
             using var stream = new MemoryStream(wav);
             var text = new StringBuilder();
             await foreach (var segment in processor.ProcessAsync(stream, token))
@@ -123,6 +124,10 @@ public sealed class Transcriber : IDisposable
             var result = DictationText.CleanArtifacts(text.ToString());
             succeeded = true;
             return result;
+        }
+        catch (WhisperProcessingException) when (token.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(token);
         }
         finally { AppLog.Write(UsingGpu ? "recognition.gpu.timing" : "recognition.cpu.timing", elapsedMs: watch.Elapsed.TotalMilliseconds, succeeded: succeeded); }
     }, token);
