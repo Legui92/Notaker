@@ -12,10 +12,10 @@
    <TextBlock Text="MODELO DE TEXTO" FontSize="10" FontWeight="SemiBold" Margin="0,0,0,8"/><TextBox x:Name="ApiModelBox" Padding="10" FontSize="13"/>
    <TextBlock Text="Usamos deepseek-flash por defecto. Puedes indicar otro modelo compatible de tu cuenta." TextWrapping="Wrap" FontSize="11" Foreground="#A5ACCB" Margin="0,6,0,22"/>
    <TextBlock Text="Palabras que son tuyas" FontSize="21" FontWeight="SemiBold"/>
-   <TextBlock Text="Nombres de clientes, empresas y términos de tu trabajo. Una palabra o expresión por línea; hasta 100 entradas de 80 caracteres. Se usan como pistas, no como sustituciones obligatorias." TextWrapping="Wrap" Foreground="#A5ACCB" FontSize="12" Margin="0,8,0,12"/>
+   <TextBlock Text="Nombres, empresas y jerga de tu trabajo, uno por línea (hasta 100). Para corregir cómo se oye un término: «Nova-Hub = novahup, nova up» lo cambia siempre. Con ~ en lugar de = solo lo cambia la IA cuando el contexto lo pide, útil si lo que se oye también es una palabra real: «Claude ~ cloud»." TextWrapping="Wrap" Foreground="#A5ACCB" FontSize="12" Margin="0,8,0,12"/>
    <TextBox x:Name="VocabularyBox" AcceptsReturn="True" Height="145" VerticalScrollBarVisibility="Auto" Padding="10" TextWrapping="Wrap" AutomationProperties.Name="Vocabulario personal"/>
    <CheckBox x:Name="LearnBox" Content="Aprender palabras al corregir dictados en Notaker" Margin="0,14,0,7"/>
-   <TextBlock Text="Usa Corregir en el historial o en la bandeja. Las palabras nuevas de esa corrección se añaden a este vocabulario; puedes quitarlas aquí. No se leen tus documentos ni las correcciones que haces en otras aplicaciones." TextWrapping="Wrap" Foreground="#A5ACCB" FontSize="12"/>
+   <TextBlock Text="Usa Corregir en el historial o en la bandeja. Lo que cambias se aprende como «Término ~ cómo se oyó»; cambia ~ por = si quieres que se reemplace siempre. Puedes editar o quitar entradas aquí. No se leen tus documentos ni las correcciones que haces en otras aplicaciones." TextWrapping="Wrap" Foreground="#A5ACCB" FontSize="12"/>
   </StackPanel></ScrollViewer>
  </DockPanel>
 </Window>

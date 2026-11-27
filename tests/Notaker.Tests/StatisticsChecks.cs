@@ -28,7 +28,7 @@ internal static class StatisticsChecks
         store.SaveVocabulary(["Notaker", "notaker", "Acme Labs"]);
         store.SaveVocabulary(["Notaker", "Acme Labs"]);
         Check(store.Statistics.Data.AddedTerms == 2, "Manual dictionary additions count unique new terms only");
-        var learned = store.Correct(first, "Hola equipo.");
+        var learned = store.Correct(first, "Hola Luzia.");
         Check(learned == 1 && store.Statistics.Data.LearnedTerms == 1 && store.Statistics.Data.ManualWordEdits == 1 && store.Statistics.Data.ManualCorrections == 1, "Manual corrections and learned terms are separate counters");
         store.Correct(first with { Text = "Hola equipo." }, "Hola equipo.");
         Check(store.Statistics.Data.ManualCorrections == 1, "Saving unchanged correction does not inflate counters");

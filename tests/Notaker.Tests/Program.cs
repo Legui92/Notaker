@@ -25,6 +25,7 @@ try
     if (args.Length == 3 && args[0] == "--native-cancel") { await NativeCancellationChecks.Run(args[1],args[2]); return 0; }
     if (args.Length == 3 && args[0] == "--physical-cancel") { await PolishDesktopChecks.Run(root,args[1],args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
+    if (args.Length == 3 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));
     if (args.Length == 2 && args[0] == "--polish-desktop") { await PolishDesktopChecks.Run(root, args[1]); return 0; }
@@ -152,14 +153,20 @@ try
     File.WriteAllBytes(Path.Combine(root, "partial.bin"), [1, 2, 3]);
     Check(!Transcriber.ModelExists(Path.Combine(root, "partial.bin")), "Partial download is not treated as installed model");
     Check(PersonalVocabulary.Normalize([" Acme Labs ", "acme labs", "", "X", "Notaker"]).SequenceEqual(["Acme Labs", "Notaker"]), "Vocabulary deduplicates phrases and rejects empty entries");
-    Check(PersonalVocabulary.Learn("enviar a Luisa mañana", "enviar a Luzia mañana").SequenceEqual(["Luzia"]), "Corrections teach newly introduced name spellings");
+    Check(PersonalVocabulary.Learn("enviar a Luisa mañana", "enviar a Luzia mañana").SequenceEqual(["Luzia ~ Luisa"]), "Corrections teach newly introduced name spellings with how they were heard");
+    VocabularyChecks.Run(Check);
     Check(!PersonalVocabulary.Learn("Enviar el texto", "Enviar el texto.").Any(), "Punctuation corrections do not pollute vocabulary");
     Check(PersonalVocabulary.Prompt(Enumerable.Range(0, 100).Select(i => "Terminología" + i)).Length <= 600, "Whisper vocabulary prompt stays bounded");
     storage.SaveVocabulary(["Notaker"]);
     storage.Add(sample);
-    var learned = storage.Correct(sample, "Reunión con Luzia en Notaker.");
+    var learned = storage.Correct(sample, "Español: reunión mañana. English: let's go, Luzia!");
+    Check(learned == 0, "Added words are not learned");
+    learned = storage.Correct(storage.History[0], "Español: reunión mañana con Luzia. English: let's go, Luzia!");
     reloaded = new Storage(root);
-    Check(learned == 1 && reloaded.Vocabulary.Contains("Luzia") && reloaded.History[0].OriginalText == sample.Text, "Corrections preserve original text and persist learned words");
+    Check(learned == 0 && reloaded.History[0].OriginalText == sample.Text, "Corrections preserve original text");
+    learned = storage.Correct(reloaded.History[0], "Español: reunión mañana con Luzia. English: let's go, Lucía!");
+    reloaded = new Storage(root);
+    Check(learned == 1 && reloaded.Vocabulary.Contains("Lucía ~ Luzia") && reloaded.History[0].OriginalText == sample.Text, "Corrections persist learned pairs: " + string.Join(" | ", reloaded.Vocabulary));
     storage.Settings.LearnVocabulary = false;
     storage.Correct(storage.History[0], "Reunión con QwertyCorp.");
     Check(!new Storage(root).Vocabulary.Contains("QwertyCorp"), "Learning opt-out prevents vocabulary collection");
@@ -170,10 +177,15 @@ try
         using var json = System.Text.Json.JsonDocument.Parse(body);
         Check(request.RequestUri?.Host == "api.deepseek.com" && request.Headers.Authorization?.Scheme == "Bearer", "Polisher uses fixed HTTPS provider with authorization header");
         Check(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!.Contains("dictated_text"), "Dictation and vocabulary are serialized as data");
+        using var userData = System.Text.Json.JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        var sent = userData.RootElement.GetProperty("vocabulary");
+        Check(sent.GetArrayLength() == 3 && sent[1].GetProperty("term").GetString() == "Nova-Hub" && sent[1].GetProperty("heard_as")[0].GetString() == "novahup"
+            && sent[2].GetProperty("context_only")[0].GetString() == "cloud" && sent[2].GetProperty("heard_as").GetArrayLength() == 0, "Editor receives terms with heard and context-only forms");
+        Check(json.RootElement.GetProperty("messages")[0].GetProperty("content").GetString()!.Contains("context_only forms are also ordinary words"), "Editor decides context-only forms by meaning");
         return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Enviar el informe mañana.\"}}]}") };
     })))
     {
-        Check(await polisher.PolishAsync("Eh, enviar el informe mañana.", "mock-key", "deepseek-flash", ["Notaker"], CancellationToken.None) == "Enviar el informe mañana.", "Polisher returns completed edited text (mock provider)");
+        Check(await polisher.PolishAsync("Eh, enviar el informe mañana.", "mock-key", "deepseek-flash", ["Notaker", "Nova-Hub = novahup", "Claude ~ cloud"], CancellationToken.None) == "Enviar el informe mañana.", "Polisher returns completed edited text (mock provider)");
         using var timing = System.Text.Json.JsonDocument.Parse(File.ReadLines(Path.Combine(root, "logs", "notaker.log")).Last());
         Check(timing.RootElement.GetProperty("succeeded").GetBoolean() && timing.RootElement.GetProperty("elapsedMs").GetDouble() >= 0,
             "Completed cleanup records successful timing");
