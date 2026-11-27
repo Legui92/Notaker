@@ -28,6 +28,8 @@ public sealed class Preferences
     public bool AutoPaste { get; set; } = true;
     public bool UseGpu { get; set; } = true;
     public bool TranscribeWhileRecording { get; set; } = true;
+    /// <summary>Experimental, off: passes the end of the previous live fragment to Whisper. Off by default: on real recordings it did not improve accuracy (README, Banco de voz).</summary>
+    public bool LiveContext { get; set; }
     public bool CleanWithAi { get; set; }
     public bool LearnVocabulary { get; set; } = true;
     public string ApiModel { get; set; } = "deepseek-flash";

@@ -149,9 +149,12 @@ public partial class MainWindow : Window
                 {
                     var model = storage.ModelPath;
                     var language = storage.Settings.Language;
-                    var vocabulary = PersonalVocabulary.Prompt(storage.Vocabulary);
+                    var lines = storage.Vocabulary.ToList();
+                    var vocabulary = PersonalVocabulary.Prompt(lines);
                     var useGpu = storage.Settings.UseGpu;
-                    liveTranscription = new LiveTranscription((wav, token) => transcriber.TranscribeAsync(model, wav, language, token, vocabulary, useGpu), DictationToken);
+                    var context = storage.Settings.LiveContext;
+                    liveTranscription = new LiveTranscription((wav, previous, token) => transcriber.TranscribeAsync(model, wav, language, token,
+                        context ? PersonalVocabulary.LivePrompt(lines, previous) : vocabulary, useGpu), DictationToken);
                     recorder.AudioAvailable += liveTranscription.Append;
                 }
                 recorder.Failed += ex => Dispatcher.BeginInvoke(new Action(() => RecordingFailed(ex)));
