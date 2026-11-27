@@ -25,7 +25,8 @@ try
     if (args.Length == 3 && args[0] == "--native-cancel") { await NativeCancellationChecks.Run(args[1],args[2]); return 0; }
     if (args.Length == 3 && args[0] == "--physical-cancel") { await PolishDesktopChecks.Run(root,args[1],args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
-    if (args.Length == 3 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2]); return 0; }
+    if (args.Length is 3 or 4 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2], args.Length == 4 && args[3] == "--show-forms"); return 0; }
+    if (args.Length is 8 or 9 && args[0] == "--voice-eval-ai") { await VoiceEval.RunAi(args[1], args[2], args[3], args[4], args[5], args[6], args[7], args.Length == 9 ? args[8] : null); return 0; }
     if (args.Length is 7 or 8 && args[0] == "--voice-eval") { await VoiceEval.Run(args[1], args[2], args[3], args[4], args[5], args[6], args.Length == 8 ? args[7] : null); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));
@@ -195,6 +196,21 @@ try
         var log = File.ReadAllText(Path.Combine(root, "logs", "notaker.log"));
         Check(!log.Contains("mock-key") && !log.Contains("enviar el informe") && !log.Contains("Texto de prueba"), "Timing logs omit keys and dictated text");
     }
+    const string hinted = "Puse la llave en el baúl, reinicia el homelap y Nova-Hub; Cloud lo sabe.";
+    using (var polisher = new TextPolisher(new StubHttp((_, body) =>
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        using var userData = System.Text.Json.JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        var entries = userData.RootElement.GetProperty("vocabulary").EnumerateArray().ToList();
+        List<string?> Forms(string term, string field) => entries.Single(e => e.GetProperty("term").GetString() == term).GetProperty(field).EnumerateArray().Select(f => f.GetString()).ToList();
+        Check(userData.RootElement.GetProperty("dictated_text").GetString() == hinted && entries.All(e => e.EnumerateObject().Select(p => p.Name).SequenceEqual(["term", "heard_as", "context_only"])),
+            "Editor receives the same dictated text and vocabulary [{term, heard_as, context_only}]");
+        Check(Forms("vault", "context_only").SequenceEqual(["baúl"]) && Forms("homelab", "context_only").SequenceEqual(["homelap"]) && Forms("vault", "heard_as").Count == 0 && Forms("homelab", "heard_as").Count == 0
+            && Forms("Nova-Hub", "heard_as").SequenceEqual(["novahup"]) && Forms("Nova-Hub", "context_only").Count == 0 && Forms("Claude", "context_only").SequenceEqual(["cloud"]) && Forms("Obsidian", "context_only").Count == 0,
+            "Sound-alikes of this dictation join their term as context-only hints, listed forms stay as they are");
+        return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Puse la llave en el baúl, reinicia el homelab y Nova-Hub; Cloud lo sabe.\"}}]}") };
+    })))
+        Check(await polisher.PolishAsync(hinted, "mock-key", "deepseek-flash", ["vault", "Obsidian", "Claude ~ cloud", "Nova-Hub = novahup", "homelab"], CancellationToken.None) == "Puse la llave en el baúl, reinicia el homelab y Nova-Hub; Cloud lo sabe.", "The editor decides each hint by context (mock provider)");
     foreach (var reason in new[] { "length", "content_filter" })
     {
         using var polisher = new TextPolisher(new StubHttp((_, _) => new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent($"{{\"choices\":[{{\"finish_reason\":\"{reason}\",\"message\":{{\"content\":\"Partial\"}}}}]}}") }));
