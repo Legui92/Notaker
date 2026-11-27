@@ -171,9 +171,12 @@ try
     learned = storage.Correct(reloaded.History[0], "Español: reunión mañana con Luzia. English: let's go, Lucía!");
     reloaded = new Storage(root);
     Check(learned == 1 && reloaded.Vocabulary.Contains("Lucía ~ Luzia") && reloaded.History[0].OriginalText == sample.Text, "Corrections persist learned pairs: " + string.Join(" | ", reloaded.Vocabulary));
+    // A short replacement that would be learned with learning on, so the opt-out check fails if the setting is ignored.
+    var optOutText = storage.History[0].Text.Replace("Lucía", "QwertyCorp");
+    Check(PersonalVocabulary.Learn(storage.History[0].Text, optOutText).Any(), "Opt-out probe would be learned with learning on");
     storage.Settings.LearnVocabulary = false;
-    storage.Correct(storage.History[0], "Reunión con QwertyCorp.");
-    Check(!new Storage(root).Vocabulary.Contains("QwertyCorp"), "Learning opt-out prevents vocabulary collection");
+    storage.Correct(storage.History[0], optOutText);
+    Check(!new Storage(root).Vocabulary.Any(v => v.Contains("QwertyCorp")), "Learning opt-out prevents vocabulary collection");
     var protectedKey = SecretStore.Protect("test-key-never-used-on-network");
     Check(!protectedKey.Contains("test-key") && SecretStore.Unprotect(protectedKey) == "test-key-never-used-on-network", "Windows protects API key and can recover it");
     using (var polisher = new TextPolisher(new StubHttp((request, body) =>
