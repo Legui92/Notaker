@@ -44,10 +44,10 @@ public static partial class PersonalVocabulary
     }
 
     // "Term = heard": a separator with a space on one side, or a tight one between a written term and a
-    // spoken word ("X-Hub=xhup"). "E=mc2", "Pi=3.14", "a=b" or chemical formulas ("H2O=agua", "NaCl=sal")
-    // stay plain terms. A term ending in a symbol is a rule only when the spoken word starts with its first
-    // letter ("C#=csharp", "C++=cplusplus"): "a+=bb" or "x#=yy" are code. With spaces ("F# = efe sharp") any
-    // spoken word counts.
+    // spoken word ("X-Hub=xhup"). "E=mc2", "Pi=3.14" or "a=b" stay plain terms. A term ending in a symbol or
+    // shaped like a chemical formula is a rule only when the spoken word starts with its first letter
+    // ("C#=csharp", "C++=cplusplus", "B2B=bitubi"): "a+=bb", "x#=yy", "H2O=agua" or "NaCl=sal" stay plain.
+    // With spaces ("F# = efe sharp", "H2O = agua") any spoken word counts.
     private static bool IsSeparator(string line, int i) => line[i] is '=' or '~'
         && ((i > 0 && char.IsWhiteSpace(line[i - 1])) || (i + 1 < line.Length && char.IsWhiteSpace(line[i + 1])) || IsTightSeparator(line, i));
 
@@ -60,8 +60,7 @@ public static partial class PersonalVocabulary
         right = end < 0 ? right : right[..end];
         if (!(left.Length >= 2 && Key(left).Length > 0 && (char.IsLetterOrDigit(left[^1]) || left[^1] is '#' or '+') && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
             && right.Length >= 2 && right.All(c => char.IsLetter(c) || c is '-' or '\'' or '’'))) return false;
-        if (IsChemicalFormula(left)) return false;
-        return char.IsLetterOrDigit(left[^1]) || Key(right).StartsWith(Key(left)[0]);
+        return (char.IsLetterOrDigit(left[^1]) && !IsChemicalFormula(left)) || Key(right).StartsWith(Key(left)[0]);
     }
 
     private static readonly HashSet<string> Elements = new(("H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr " +

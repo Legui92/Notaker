@@ -108,6 +108,9 @@ static class VocabularyChecks
             "J19-5: chemical formulas written without spaces are plain terms: " + string.Join(" | ", formulas));
         check(PersonalVocabulary.Parse("GitHub=gitjab").Always.SequenceEqual(["gitjab"]) && PersonalVocabulary.Parse("PR=pe").Always.SequenceEqual(["pe"])
             && PersonalVocabulary.Apply("bebe agua", ["H2O = agua"]) == "bebe H2O", "J19-5: names, acronyms and formulas with spaces keep their rules");
+        string[] digitAcronyms = ["B2B=bitubi", "P2P=pitupi", "V8=veocho", "W3C=wtresc"];
+        check(PersonalVocabulary.Apply("modelo bitubi y pitupi, motor veocho, norma wtresc", digitAcronyms) == "modelo B2B y P2P, motor V8, norma W3C",
+            "J20-1: acronyms with digits made of element letters keep tight rules spoken with their first letter");
         check(PersonalVocabulary.Normalize(["a+=bb", "x#=yy"]).SequenceEqual(["a+=bb", "x#=yy"]) && PersonalVocabulary.Apply("bb y yy", ["a+=bb", "x#=yy"]) == "bb y yy",
             "J19-9: compound assignments are code, not rules");
         check(PersonalVocabulary.Parse("C#=csharp").Always.SequenceEqual(["csharp"]) && PersonalVocabulary.Parse("C++=cplusplus").Always.SequenceEqual(["cplusplus"])
