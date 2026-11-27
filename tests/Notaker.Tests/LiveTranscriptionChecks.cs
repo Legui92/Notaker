@@ -79,11 +79,62 @@ internal static class LiveTranscriptionChecks
                 "Backlog cancels and drains the sole decoder before full-recording fallback");
         }
         using var cancellation = new CancellationTokenSource();
-        await using (var live = new LiveTranscription((_, _) => Task.FromResult("Loud first phrase"), CancellationToken.None))
+        // Final quiet tail after the last cut (16 of 620 real dictations fell back to the full recording here).
+        var speechPcm = Enumerable.Repeat((byte)1, 300 * 3200).Concat(new byte[7 * 3200]).ToArray();
+        var seen = new List<(byte[] Pcm, string Previous)>();
+        await using (var live = new LiveTranscription((wav, previous, _) =>
+        {
+            var pcm = ReadPcm(wav); seen.Add((pcm, previous));
+            return Task.FromResult(seen.Count == 1 ? "First part." : seen.Count == 2 ? "Second part, almost" : "Second part, almost done.");
+        }, CancellationToken.None))
+        {
+            Feed(live); Feed(live);
+            live.Append(new byte[] { 1, 0, 2, 0 }, 4, .005f);
+            Check(await live.CompleteAsync() == "First part. Second part, almost done." && !live.FellBack && seen.Count == 3,
+                "Quiet nonzero final tail replaces the last fragment's text instead of a full fallback");
+            Check(seen[2].Pcm.SequenceEqual(speechPcm.Concat(new byte[] { 1, 0, 2, 0 })) && seen[2].Previous == "First part.",
+                "Quiet final tail is decoded with the fragment before it and the text before that fragment as context");
+        }
+        var decodeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var superseded = false; var decodes = 0;
+        await using (var live = new LiveTranscription(async (wav, previous, token) =>
+        {
+            if (Interlocked.Increment(ref decodes) == 1)
+            {
+                decodeStarted.TrySetResult();
+                try { await Task.Delay(Timeout.Infinite, token); } catch (OperationCanceledException) { superseded = true; throw; }
+            }
+            return ReadPcm(wav).Length == speechPcm.Length + 4 && previous == "" ? "Whole last fragment." : "wrong";
+        }, CancellationToken.None))
+        {
+            Feed(live); await decodeStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            live.Append(new byte[] { 1, 0, 2, 0 }, 4, .005f);
+            Check(await live.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(3)) == "Whole last fragment." && !live.FellBack && superseded && decodes == 2,
+                "Quiet final tail cancels the in-flight decode of the fragment it joins instead of decoding that audio twice");
+        }
+        await using (var live = new LiveTranscription((wav, _) => Task.FromResult(ReadPcm(wav).Length > speechPcm.Length ? "Loud first phrase y nada más" : "Loud first phrase"), CancellationToken.None))
+        {
+            Feed(live);
+            for (var i = 0; i < 5; i++) live.Append(Enumerable.Repeat((byte)1, 3200).ToArray(), 3200, .004f);
+            Check(await live.CompleteAsync() == "Loud first phrase y nada más" && !live.FellBack, "Soft speech below the speech threshold at the end keeps its words");
+        }
+        await using (var live = new LiveTranscription((wav, _) => Task.FromResult(ReadPcm(wav).Length > speechPcm.Length ? "" : "Loud first phrase"), CancellationToken.None))
         {
             Feed(live);
             live.Append(new byte[] { 1, 0, 2, 0 }, 4, .005f);
-            Check(await live.CompleteAsync() == null && live.FellBack, "Quiet nonzero tail triggers full fallback rather than losing possible speech");
+            Check(await live.CompleteAsync() == null && live.FellBack, "An empty result for the last fragment with its quiet tail still requests full-recording fallback");
+        }
+        await using (var live = new LiveTranscription((wav, _) => ReadPcm(wav).Length > speechPcm.Length ? Task.FromException<string>(new IOException()) : Task.FromResult("Loud first phrase"), CancellationToken.None))
+        {
+            Feed(live);
+            live.Append(new byte[] { 1, 0, 2, 0 }, 4, .005f);
+            Check(await live.CompleteAsync() == null && live.FellBack, "Decoder failure on the quiet final tail still requests full-recording fallback");
+        }
+        await using (var live = new LiveTranscription((_, _) => Task.FromResult("Loud first phrase"), CancellationToken.None))
+        {
+            Feed(live);
+            for (var i = 0; i < 307; i++) live.Append(Enumerable.Repeat((byte)1, 3200).ToArray(), 3200, .004f);
+            Check(await live.CompleteAsync() == null && live.FellBack, "A quiet segment in the middle of a recording still uses the full recording's context");
         }
         var began = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var session = new LiveTranscription(async (_, token) =>

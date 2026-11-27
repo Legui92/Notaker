@@ -10,7 +10,7 @@ public sealed class LiveTranscription : IAsyncDisposable
     private const int BytesPerSecond = 32000;
     private readonly object gate = new();
     private readonly MemoryStream pending = new();
-    private readonly Channel<byte[]> queue = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(2)
+    private readonly Channel<(byte[] Pcm, bool QuietTail)> queue = Channel.CreateBounded<(byte[] Pcm, bool QuietTail)>(new BoundedChannelOptions(2)
     { SingleReader = true, SingleWriter = true, FullMode = BoundedChannelFullMode.Wait });
     private readonly CancellationTokenSource cancellation;
     private readonly Task<string?> worker;
@@ -20,6 +20,8 @@ public sealed class LiveTranscription : IAsyncDisposable
     private bool hasSignal;
     private int silentBytes;
     private int completedChunks;
+    // Decode of the newest speech fragment; the quiet final tail cancels it, since that audio is decoded again anyway.
+    private CancellationTokenSource? decoding;
     private readonly int minimumChunkBytes;
     public int CompletedChunks => Volatile.Read(ref completedChunks);
     public bool FellBack => failed;
@@ -39,21 +41,42 @@ public sealed class LiveTranscription : IAsyncDisposable
         worker = Task.Run(async () =>
         {
             var parts = new List<string>();
+            byte[]? last = null;
+            var lastHasText = false;
             try
             {
-                await foreach (var pcm in queue.Reader.ReadAllAsync(cancellation.Token))
+                await foreach (var (chunk, quietTail) in queue.Reader.ReadAllAsync(cancellation.Token))
                 {
                     if (failed) break;
+                    // Alone, Whisper turns low noise into words (a stock phrase or the prompt). The quiet final tail is
+                    // therefore decoded together with the fragment before it, which replaces that fragment's text:
+                    // trailing noise becomes nothing, as in the full recording, and soft last words keep their context.
+                    if (quietTail && last == null) throw new InvalidDataException("Quiet recording without a previous fragment.");
+                    var pcm = quietTail ? [.. last!, .. chunk] : chunk;
+                    if (quietTail && lastHasText) parts.RemoveAt(parts.Count - 1);
                     using var wav = new MemoryStream();
                     using (var writer = new WaveFileWriter(wav, new WaveFormat(16000, 16, 1)))
                     {
                         writer.Write(pcm, 0, pcm.Length);
                         writer.Flush();
-                        var text = await recognize(wav.ToArray(), string.Join(" ", parts), cancellation.Token).ConfigureAwait(false);
+                        using var item = CancellationTokenSource.CreateLinkedTokenSource(cancellation.Token);
+                        if (!quietTail) lock (gate) decoding = item;
+                        string text;
+                        try { text = await recognize(wav.ToArray(), string.Join(" ", parts), item.Token).ConfigureAwait(false); }
+                        catch (OperationCanceledException) when (item.IsCancellationRequested && !cancellation.IsCancellationRequested)
+                        {
+                            // Superseded by the quiet final tail, which decodes this audio with it next.
+                            last = pcm; lastHasText = false;
+                            AppLog.Write("live.quiet_tail.superseded");
+                            continue;
+                        }
+                        finally { lock (gate) decoding = null; }
                         // Never silently omit a chunk that contained speech.
                         if (string.IsNullOrWhiteSpace(text)) throw new InvalidDataException("Empty live chunk.");
                         parts.Add(text.Trim());
                     }
+                    last = pcm; lastHasText = true;
+                    if (quietTail) AppLog.Write("live.quiet_tail.joined");
                     Interlocked.Increment(ref completedChunks);
                 }
                 return failed ? null : string.Join(" ", parts);
@@ -84,16 +107,21 @@ public sealed class LiveTranscription : IAsyncDisposable
         }
     }
 
-    private void Enqueue()
+    private void Enqueue(bool final = false)
     {
-        // RMS is a segmentation hint, not permission to delete quiet speech.
-        // An ambiguous quiet segment must be recognized in the full recording's context.
-        if ((!speech && hasSignal) || (speech && !queue.Writer.TryWrite(pending.ToArray())))
+        // RMS is a segmentation hint, not permission to delete quiet speech. A quiet segment in the middle of a
+        // recording must be recognized in the full recording's context. The quiet final tail (after the last cut)
+        // is recognized again with the fragment before it instead of the whole recording.
+        var quietTail = final && !speech && hasSignal;
+        // Only the fragment being decoded with nothing queued after it is the one the tail joins.
+        var supersede = quietTail && queue.Reader.Count == 0 ? decoding : null;
+        if ((!speech && hasSignal && !quietTail) || ((speech || quietTail) && !queue.Writer.TryWrite((pending.ToArray(), quietTail))))
         {
             failed = true;
             cancellation.Cancel();
-            AppLog.Write(!speech && hasSignal ? "live.quiet_segment.full_audio_retained" : "live.backlog.full_audio_retained");
+            AppLog.Write(!speech && hasSignal && !quietTail ? "live.quiet_segment.full_audio_retained" : "live.backlog.full_audio_retained");
         }
+        else supersede?.Cancel();
         pending.SetLength(0);
         speech = false;
         hasSignal = false;
@@ -106,7 +134,7 @@ public sealed class LiveTranscription : IAsyncDisposable
         {
             if (!finished)
             {
-                if (!failed) Enqueue();
+                if (!failed) Enqueue(final: true);
                 finished = true;
                 queue.Writer.TryComplete();
             }
