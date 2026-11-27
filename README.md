@@ -78,6 +78,14 @@ Pruebas adicionales del motor nativo con modelo base y dos WAV PCM de 16 kHz mon
 dotnet run --project tests/Notaker.Tests -c Release --no-restore -- artifacts/qa/ggml-base.bin artifacts/qa/english.wav artifacts/qa/spanish.wav
 ```
 
+Banco de voz con grabaciones propias (fuera del repositorio): WER normalizado (sin mayúsculas ni puntuación) y aciertos de términos del vocabulario por bloque y en total, sin glosario, con glosario y reemplazo local, y en modo en vivo con y sin el final del fragmento anterior como contexto. `REFERENCIA` contiene secciones `Bloque N` con el texto leído; el audio es `bloqueN.wav` (16 kHz mono) en `AUDIO`. La consola muestra solo recuentos; los textos reconocidos van a `SALIDA.json`, que debe quedar fuera del repositorio. `TERMINOS` es opcional (jerga adicional, una por línea). No usa red, micrófono ni IA:
+
+```powershell
+dotnet run --project tests/Notaker.Tests -c Release --no-restore -- --voice-eval AUDIO REFERENCIA vocabulary.json ggml-large-v3-turbo-q8_0.bin SALIDA.json mixed [TERMINOS]
+```
+
+El contexto del fragmento anterior en vivo (`"LiveContext": true` en `settings.json`, desactivado por defecto) añade al glosario hasta 200 caracteres del texto ya reconocido, corregidos con el vocabulario y dentro del mismo límite de 600 caracteres. En el banco no mejoró la precisión, así que sigue apagado.
+
 Prueba de escritorio en una sesión Windows interactiva (abre un editor de prueba, verifica conflictos del atajo, foco del indicador y pegado Unicode con Ctrl+V):
 
 ```powershell

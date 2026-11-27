@@ -153,17 +153,54 @@ public static partial class PersonalVocabulary
         if (oldSpan.Count > 0 && newSpan.Count > 0) yield return (oldSpan, newSpan);
     }
 
+    /// <summary>Upper bound for every Whisper prompt built here, with or without live context.</summary>
+    public const int MaxPromptLength = 600;
+    public const int MaxContextLength = 200;
+
     /// <summary>Whisper prompt: correctly spelled terms only, never the mis-heard forms.</summary>
-    public static string Prompt(IEnumerable<string> lines)
+    public static string Prompt(IEnumerable<string> lines) => Prompt(lines, MaxPromptLength);
+    public static string Prompt(IEnumerable<string> lines, int maxLength)
     {
         var result = new List<string>();
         var length = "Glosario: .".Length;
         foreach (var term in Entries(lines).Select(e => e.Term))
         {
-            if (length + term.Length + 2 > 600) break;
+            if (length + term.Length + 2 > maxLength) break;
             result.Add(term); length += term.Length + 2;
         }
         return result.Count == 0 ? "" : "Glosario: " + string.Join(", ", result) + ".";
+    }
+
+    /// <summary>
+    /// Last words of the text already recognized, for the next live fragment: at most <paramref name="maxLength"/>
+    /// characters, starting at a word boundary (a sentence start when one fits), line breaks and repeated spaces
+    /// collapsed. Never cuts a word in half.
+    /// </summary>
+    public static string ContextTail(string? previous, int maxLength = MaxContextLength)
+    {
+        if (string.IsNullOrWhiteSpace(previous) || maxLength <= 0) return "";
+        var flat = string.Join(' ', previous.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (flat.Length <= maxLength) return flat;
+        var window = flat[^maxLength..];
+        var cut = flat[^(maxLength + 1)] == ' ' ? 0 : window.IndexOf(' ') + 1;
+        if (cut <= 0 && flat[^(maxLength + 1)] != ' ') return "";
+        window = window[cut..];
+        // Prefer a whole sentence: Whisper continues the style of the prompt, a half sentence invites repeats.
+        for (var i = 0; i + 1 < window.Length / 2; i++)
+            if (window[i] is '.' or '!' or '?' && window[i + 1] == ' ') return window[(i + 2)..];
+        return window;
+    }
+
+    /// <summary>
+    /// Live prompt: glossary plus the tail of the previous fragments, within the same bound as the glossary alone.
+    /// The tail goes through <see cref="Apply"/> first, so Whisper sees the fixed spelling, not the mis-hearing.
+    /// </summary>
+    public static string LivePrompt(IEnumerable<string> lines, string? previous)
+    {
+        var list = lines as IList<string> ?? lines.ToList();
+        var tail = ContextTail(string.IsNullOrWhiteSpace(previous) ? previous : Apply(previous, list));
+        var glossary = Prompt(list, MaxPromptLength - (tail.Length == 0 ? 0 : tail.Length + 1));
+        return tail.Length == 0 ? glossary : glossary.Length == 0 ? tail : glossary + " " + tail;
     }
 
     // Spelling variants are normalized only for written compound names: letters at both ends, inner capitals

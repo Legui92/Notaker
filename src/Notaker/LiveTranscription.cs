@@ -20,11 +20,21 @@ public sealed class LiveTranscription : IAsyncDisposable
     private bool hasSignal;
     private int silentBytes;
     private int completedChunks;
+    private readonly int minimumChunkBytes;
     public int CompletedChunks => Volatile.Read(ref completedChunks);
     public bool FellBack => failed;
 
     public LiveTranscription(Func<byte[], CancellationToken, Task<string>> recognize, CancellationToken token)
+        : this((wav, _, t) => recognize(wav, t), token) { }
+
+    /// <summary>
+    /// The recognizer also receives the text already recognized in this recording (empty for the first fragment),
+    /// so it can pass the end of it to Whisper as context. <paramref name="minimumChunkSeconds"/> exists for
+    /// evaluation only; the app always uses the 30 s default.
+    /// </summary>
+    public LiveTranscription(Func<byte[], string, CancellationToken, Task<string>> recognize, CancellationToken token, int minimumChunkSeconds = 30)
     {
+        minimumChunkBytes = Math.Max(1, minimumChunkSeconds) * BytesPerSecond;
         cancellation = CancellationTokenSource.CreateLinkedTokenSource(token);
         worker = Task.Run(async () =>
         {
@@ -39,7 +49,7 @@ public sealed class LiveTranscription : IAsyncDisposable
                     {
                         writer.Write(pcm, 0, pcm.Length);
                         writer.Flush();
-                        var text = await recognize(wav.ToArray(), cancellation.Token).ConfigureAwait(false);
+                        var text = await recognize(wav.ToArray(), string.Join(" ", parts), cancellation.Token).ConfigureAwait(false);
                         // Never silently omit a chunk that contained speech.
                         if (string.IsNullOrWhiteSpace(text)) throw new InvalidDataException("Empty live chunk.");
                         parts.Add(text.Trim());
@@ -69,7 +79,7 @@ public sealed class LiveTranscription : IAsyncDisposable
             if (level > 0.006f) { speech = true; silentBytes = 0; }
             else silentBytes += count;
             // Contiguous audio, no overlap or guessed text deduplication. Never force a cut mid-speech.
-            if (pending.Length >= 30 * BytesPerSecond && silentBytes >= 7 * BytesPerSecond / 10)
+            if (pending.Length >= minimumChunkBytes && silentBytes >= 7 * BytesPerSecond / 10)
                 Enqueue();
         }
     }

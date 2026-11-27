@@ -26,6 +26,7 @@ try
     if (args.Length == 3 && args[0] == "--physical-cancel") { await PolishDesktopChecks.Run(root,args[1],args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
     if (args.Length == 3 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2]); return 0; }
+    if (args.Length is 7 or 8 && args[0] == "--voice-eval") { await VoiceEval.Run(args[1], args[2], args[3], args[4], args[5], args[6], args.Length == 8 ? args[7] : null); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));
     if (args.Length == 2 && args[0] == "--polish-desktop") { await PolishDesktopChecks.Run(root, args[1]); return 0; }
@@ -59,6 +60,7 @@ try
     StartupChecks.Run(root);
     var storage = new Storage(root);
     Check(storage.Settings.TranscribeWhileRecording, "New installations enable transcription during recording");
+    Check(!storage.Settings.LiveContext, "Live context from the previous fragment is off unless enabled");
     var legacySettingsRoot = Path.Combine(root, "legacy-live-default");
     Directory.CreateDirectory(legacySettingsRoot);
     File.WriteAllText(Path.Combine(legacySettingsRoot, "settings.json"), "{\"Language\":\"mixed\"}");
@@ -155,6 +157,7 @@ try
     Check(PersonalVocabulary.Normalize([" Acme Labs ", "acme labs", "", "X", "Notaker"]).SequenceEqual(["Acme Labs", "Notaker"]), "Vocabulary deduplicates phrases and rejects empty entries");
     Check(PersonalVocabulary.Learn("enviar a Luisa mañana", "enviar a Luzia mañana").SequenceEqual(["Luzia ~ Luisa"]), "Corrections teach newly introduced name spellings with how they were heard");
     VocabularyChecks.Run(Check);
+    await LiveContextChecks.Run(Check);
     Check(!PersonalVocabulary.Learn("Enviar el texto", "Enviar el texto.").Any(), "Punctuation corrections do not pollute vocabulary");
     Check(PersonalVocabulary.Prompt(Enumerable.Range(0, 100).Select(i => "Terminología" + i)).Length <= 600, "Whisper vocabulary prompt stays bounded");
     storage.SaveVocabulary(["Notaker"]);
