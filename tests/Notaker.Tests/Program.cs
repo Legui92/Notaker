@@ -25,7 +25,7 @@ try
     if (args.Length == 3 && args[0] == "--native-cancel") { await NativeCancellationChecks.Run(args[1],args[2]); return 0; }
     if (args.Length == 3 && args[0] == "--physical-cancel") { await PolishDesktopChecks.Run(root,args[1],args[2]); return 0; }
     if (args.Length == 4 && args[0] == "--attention-benchmark") { await AttentionBenchmark.Run(args[1], args[2], args[3]); return 0; }
-    if (args.Length == 3 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2]); return 0; }
+    if (args.Length is 3 or 4 && args[0] == "--vocabulary-eval") { VocabularyEval.Run(args[1], args[2], args.Length == 4 && args[3] == "--show-forms"); return 0; }
     if (args.Length is 7 or 8 && args[0] == "--voice-eval") { await VoiceEval.Run(args[1], args[2], args[3], args[4], args[5], args[6], args.Length == 8 ? args[7] : null); return 0; }
     if (args.Length == 4 && args[0] == "--live-benchmark") { await LiveBenchmark.Run(args[1], args[2], args[3]); return 0; }
     await LiveTranscriptionChecks.Run(Path.Combine(root, "live"));
@@ -195,6 +195,15 @@ try
         var log = File.ReadAllText(Path.Combine(root, "logs", "notaker.log"));
         Check(!log.Contains("mock-key") && !log.Contains("enviar el informe") && !log.Contains("Texto de prueba"), "Timing logs omit keys and dictated text");
     }
+    using (var polisher = new TextPolisher(new StubHttp((_, body) =>
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(body);
+        using var userData = System.Text.Json.JsonDocument.Parse(json.RootElement.GetProperty("messages")[1].GetProperty("content").GetString()!);
+        var sent = userData.RootElement.GetProperty("vocabulary").EnumerateArray().ToDictionary(e => e.GetProperty("term").GetString()!, e => e.GetProperty("context_only").EnumerateArray().Select(f => f.GetString()).ToList());
+        Check(sent["vault"].SequenceEqual(["baúl"]) && sent["Claude"].SequenceEqual(["cloud"]) && sent["Obsidian"].Count == 0, "Editor receives real-word sound-alikes of this dictation as context-only hints");
+        return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"Puse la llave en el baúl y la nota en Obsidian.\"}}]}") };
+    })))
+        Check(await polisher.PolishAsync("Puse la llave en el baúl y la nota en Obsidian, Cloud lo sabe.", "mock-key", "deepseek-flash", ["vault", "Obsidian", "Claude ~ cloud"], CancellationToken.None) == "Puse la llave en el baúl y la nota en Obsidian.", "The editor keeps a hinted real word when the context does not fit (mock provider)");
     foreach (var reason in new[] { "length", "content_filter" })
     {
         using var polisher = new TextPolisher(new StubHttp((_, _) => new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new System.Net.Http.StringContent($"{{\"choices\":[{{\"finish_reason\":\"{reason}\",\"message\":{{\"content\":\"Partial\"}}}}]}}") }));

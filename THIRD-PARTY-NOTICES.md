@@ -1,6 +1,6 @@
 # Third-party notices
 
-Notaker includes Whisper.net / Whisper.net.Runtime / Whisper.net.Runtime.Vulkan 1.9.0, whisper.cpp / ggml, NAudio 2.2.1 and the .NET 8 runtime. Downloaded Whisper models are distributed under the upstream MIT license.
+Notaker includes Whisper.net / Whisper.net.Runtime / Whisper.net.Runtime.Vulkan 1.9.0, whisper.cpp / ggml, NAudio 2.2.1, the .NET 8 runtime and a word list derived from FrequencyWords. Downloaded Whisper models are distributed under the upstream MIT license.
 
 ## Whisper.net
 
@@ -1415,3 +1415,15 @@ Licensed under the Apache License, Version 2.0.
 Available at
 https://github.com/SixLabors/ImageSharp/blob/f4f689ce67ecbcc35cebddba5aacb603e6d1068a/LICENSE
 
+## FrequencyWords (known-words list)
+
+`src/Notaker/Assets/known-words.txt` (embedded in Notaker) is derived from the Spanish and English 2018 lists
+`es_50k.txt` and `en_50k.txt` of FrequencyWords by Hermit Dave (https://github.com/hermitdave/FrequencyWords),
+generated from OpenSubtitles 2018 (http://opus.nlpl.eu/OpenSubtitles2018.php).
+
+Changes: frequency counts removed, both lists merged, words lowercased, accents removed, entries with digits,
+symbols, non-Latin letters or fewer than two letters dropped, duplicates removed and sorted.
+
+The FrequencyWords content is licensed under the Creative Commons Attribution-ShareAlike 4.0 International
+license (CC BY-SA 4.0, https://creativecommons.org/licenses/by-sa/4.0/). The derived `known-words.txt` is
+distributed under the same license. Notaker only uses it to check whether a dictated word is a real word.

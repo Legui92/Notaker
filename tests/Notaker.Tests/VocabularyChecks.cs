@@ -50,35 +50,85 @@ static class VocabularyChecks
         check(kept.SequenceEqual(["E=mc2", "Pi = 3.14", "Claude ~ cloud", "Cloud"]), "Old entries with symbols and real words survive normalization: " + string.Join(" | ", kept));
         check(PersonalVocabulary.Apply("pi vale 3.14", kept) == "pi vale 3.14", "Legacy entries with '=' and no spoken form are not rules");
 
+        // Sound matches (vocabulario fonético): new mis-hearings that are not real words become the term locally.
+        string[] jargon = ["Nova-Hub = novahup", "Claude ~ cloud", "DeepSeek", "Obsidian", "homelab", "worktree", "worktrees", "vault", "backlog", "commit", "pipeline", "Orca", "eli5", "UNA", ".NET", "Mercado Libre"];
+        check(PersonalVocabulary.IsKnownWord("baúl") && PersonalVocabulary.IsKnownWord("Baul") && PersonalVocabulary.IsKnownWord("couldn't") && PersonalVocabulary.IsKnownWord("pilot")
+            && !PersonalVocabulary.IsKnownWord("homelapse") && !PersonalVocabulary.IsKnownWord("Dipsick"), "Known words are recognized with or without accents and English clitics");
+        check(PersonalVocabulary.SoundKey("DeepSeek") == PersonalVocabulary.SoundKey("Dipsick") && PersonalVocabulary.SoundKey("Nova-Hub") == PersonalVocabulary.SoundKey("novahoop"), "Spanish and English spellings of one sound share a key");
+        foreach (var (heard, fixedText) in new[]
+        {
+            ("Reinicia el homelapse esta tarde", "Reinicia el homelab esta tarde"),
+            ("Homelapse apagado desde ayer", "Homelab apagado desde ayer"),
+            ("crea otro Wordtree para la rama", "crea otro worktree para la rama"),
+            ("guardo notas en Ocidian o en Oxidian", "guardo notas en Obsidian o en Obsidian"),
+            ("le pido a Dipsick que resuma", "le pido a DeepSeek que resuma"),
+            ("revisa Novahoop mañana", "revisa Nova-Hub mañana"),
+        })
+        {
+            var result = PersonalVocabulary.Apply(heard, jargon, out var n);
+            check(result == fixedText && n >= 1, $"Unknown sound-alike becomes the term: {heard} -> {result}");
+            check(PersonalVocabulary.Apply(result, jargon, out var again2) == result && again2 == 0, "Sound replacement is idempotent: " + result);
+        }
+        foreach (var correct in new[]
+        {
+            // Real Spanish and English words that sound like a term stay as dictated.
+            "Lo guardé en el baúl, el baul y la bóveda. The pilot hit a frag, a flack and a bubble; pass the piloto.",
+            "Subí fotos al cloud y a la Cloud pública. Un homenaje a la obsidiana con un vaso de horchata.",
+            // Inflections and Spanglish verbs that start with a term, other terms and protected spellings.
+            "Revisa los backlogs, commitear y commiteado, los worktrees, el homelab y Obsidian.",
+            // Symbols, paths, handles, files, numbers, acronyms, phrases and line breaks.
+            "Usa .NET, abre homelapse.txt, C:\\homelapse\\x, @homelapse, #Ocidian, homelapse_2 y homelapse2. El 20-26 de junio, 3,5 %, HOMELAPSE y UNA reunión.",
+            "Mercado Libre y el mercado libre. home\nlapse, Dip\nsick.",
+            // Ordinary dictation in both languages.
+            "Mañana a las 9:30 revisamos el presupuesto con Juan, después enviamos el documento. The build broke twice and the chart looks wrong since Friday.",
+        })
+            check(PersonalVocabulary.Apply(correct, jargon, out var none) == correct && none == 0, "Correct text and real words are never rewritten by sound: " + PersonalVocabulary.Apply(correct, jargon));
+        var hints = PersonalVocabulary.SoundHints("puse la llave en el baúl y la nota en Obsidian, Cloud lo sabe", jargon);
+        check(hints.TryGetValue("vault", out var vaultHints) && vaultHints.SequenceEqual(["baúl"]) && !hints.ContainsKey("Claude"), "Real-word sound-alikes are only AI hints, never for listed '~' forms: " + string.Join(" | ", hints.Select(h => h.Key + "=" + string.Join(",", h.Value))));
+        check(PersonalVocabulary.Apply("pregunta a Cloude", jargon) == "pregunta a Cloude" && PersonalVocabulary.SoundHints("pregunta a Cloude", jargon)["Claude"].SequenceEqual(["cloude"]), "A word that sounds like a '~' form stays a hint, never a replacement");
+        check(PersonalVocabulary.SoundMatches("Dip sick lo limpia", jargon) is [{ Term: "DeepSeek", Local: false }], "A phrase of real words is a hint, not a replacement");
+        check(!PersonalVocabulary.SoundMatches("el orka y el eli", jargon).Any(), "Short terms and terms with digits are never sound targets");
+        check(!PersonalVocabulary.SoundMatches("abre Dipsik", ["DeepSeek", "Deepsick"]).Any(), "Ties between two terms are not guessed");
+
         var prompt = PersonalVocabulary.Prompt(vocabulary);
         check(prompt.StartsWith("Glosario: ") && prompt.Contains("Nova-Hub") && prompt.Contains("Claude") && !prompt.Contains("novahup") && !prompt.Contains("cloud"), "Whisper receives only correctly spelled terms: " + prompt);
     }
 }
 
-/// <summary>Counts term forms in a local history before and after Apply. Prints counts only, never dictated text.</summary>
+/// <summary>
+/// Counts term forms in a local history before and after Apply, and how many rewrites and AI hints come from sound
+/// matches. Prints counts only, never dictated text; --show-forms also prints each sound match as "heard -> term"
+/// (single words or short phrases, for a manual false-positive review on the user's own machine).
+/// </summary>
 static class VocabularyEval
 {
-    public static void Run(string historyPath, string vocabularyPath)
+    public static void Run(string historyPath, string vocabularyPath, bool showForms = false)
     {
         var history = System.Text.Json.JsonSerializer.Deserialize<List<Dictation>>(File.ReadAllText(historyPath)) ?? [];
-        var vocabulary = File.ReadAllLines(vocabularyPath);
+        var vocabulary = VoiceEval.ReadVocabulary(vocabularyPath);
         // Probes come from the vocabulary itself: every term (exact case) and every heard form (any case).
         var probes = PersonalVocabulary.Entries(vocabulary).SelectMany(e => e.HeardAs.Prepend(e.Term)).Distinct().ToArray();
         var before = new Dictionary<string, int>(); var after = new Dictionary<string, int>();
-        var replaced = 0;
+        var forms = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        int replaced = 0, sounds = 0, hints = 0, changedDictations = 0;
         foreach (var item in history)
         {
             var raw = item.OriginalText ?? item.Text;
             var fixedText = PersonalVocabulary.Apply(raw, vocabulary, out var count); replaced += count;
+            // Sound matches are decided on the text after the "=" forms and spelling variants, as Apply does.
+            var withoutSounds = PersonalVocabulary.Apply(raw, vocabulary, out _, sounds: false);
+            var matches = PersonalVocabulary.SoundMatches(withoutSounds, vocabulary);
+            sounds += matches.Count(m => m.Local); hints += matches.Count(m => !m.Local);
+            if (matches.Any(m => m.Local)) changedDictations++;
+            foreach (var m in matches) { var k = $"{m.Heard} -> {m.Term} ({(m.Local ? "local" : "hint")}, d={m.Distance})"; forms[k] = forms.GetValueOrDefault(k) + 1; }
             foreach (var probe in probes)
             {
-                var pattern = @"(?<![\p{L}\p{N}])" + System.Text.RegularExpressions.Regex.Escape(probe) + @"(?![\p{L}\p{N}])";
-                var cs = probe.Any(char.IsUpper) ? System.Text.RegularExpressions.RegexOptions.None : System.Text.RegularExpressions.RegexOptions.IgnoreCase;
-                before[probe] = before.GetValueOrDefault(probe) + System.Text.RegularExpressions.Regex.Matches(raw, pattern, cs).Count;
-                after[probe] = after.GetValueOrDefault(probe) + System.Text.RegularExpressions.Regex.Matches(fixedText, pattern, cs).Count;
+                before[probe] = before.GetValueOrDefault(probe) + VoiceEval.Occurrences(raw, probe);
+                after[probe] = after.GetValueOrDefault(probe) + VoiceEval.Occurrences(fixedText, probe);
             }
         }
-        Console.WriteLine($"dictations={history.Count} replacements={replaced}");
+        Console.WriteLine($"dictations={history.Count} replacements={replaced} formReplacements={replaced - sounds} soundReplacements={sounds} dictationsWithSoundReplacements={changedDictations} soundHints={hints}");
         foreach (var probe in probes) Console.WriteLine($"{probe}: {before[probe]} -> {after[probe]}");
+        if (showForms) foreach (var (form, n) in forms) Console.WriteLine($"sound {form} x{n}");
     }
 }

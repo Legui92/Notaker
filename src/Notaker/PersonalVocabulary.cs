@@ -240,20 +240,22 @@ public static partial class PersonalVocabulary
     }
 
     /// <summary>
-    /// Deterministic local replacement of "=" forms and spelling variants of written compound names. Whole words
-    /// only, one pass, longest form first, idempotent. "~" forms are never touched here.
+    /// Deterministic local replacement of "=" forms, spelling variants of written compound names and words that
+    /// sound like a term without being real words (<see cref="SoundMatches"/>). Whole words only, one pass,
+    /// longest form first, idempotent. "~" forms and real words are never touched here.
     /// </summary>
     public static string Apply(string text, IEnumerable<string> lines) => Apply(text, lines, out _);
-    public static string Apply(string text, IEnumerable<string> lines, out int replacements)
+    public static string Apply(string text, IEnumerable<string> lines, out int replacements) => Apply(text, lines, out replacements, sounds: true);
+    internal static string Apply(string text, IEnumerable<string> lines, out int replacements, bool sounds)
     {
         replacements = 0;
         if (string.IsNullOrWhiteSpace(text)) return text;
-        var (regex, terms) = Replacer(lines);
-        if (regex == null) return text;
+        var list = lines as IList<string> ?? lines.ToList();
+        var (regex, terms) = Replacer(list);
         var count = 0;
         try
         {
-            var result = regex.Replace(text, match =>
+            var result = regex == null ? text : regex.Replace(text, match =>
             {
                 for (var i = 0; i < terms.Length; i++)
                     if (match.Groups[$"g{i}"].Success)
@@ -263,6 +265,7 @@ public static partial class PersonalVocabulary
                     }
                 return match.Value;
             });
+            if (sounds) result = ReplaceSounds(result, list, ref count);
             replacements = count;
             return result;
         }

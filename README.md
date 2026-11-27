@@ -31,6 +31,7 @@ En **Escritura con IA y vocabulario personal** puedes activar la limpieza con De
 
 - `Nova-Hub = novahup, novaub` reemplaza siempre, en tu equipo y antes de la IA, esas formas por el término exacto. Coincide con palabras completas, sin importar mayúsculas, espacios o guiones (`nova up` también cuenta). Los términos escritos con guion o mayúsculas internas también corrigen sus variantes (`nova hub` pasa a `Nova-Hub`, `deepseek` a `DeepSeek`). Siglas, cifras, frases con espacios o términos con símbolos al inicio (`.NET`) siguen siendo solo pistas: no se reescriben salvo que declares formas con `=`. Los reemplazos nunca cruzan saltos de línea y se conservan aunque la IA falle o pulses usar el texto original.
 - `Claude ~ cloud` no reemplaza localmente porque lo oído también es una palabra real. Solo la limpieza con IA lo cambia cuando el contexto se refiere al término y conserva `cloud` cuando hablas de la nube. Sin IA, no cambia.
+- **Por sonido, sin declarar nada:** una palabra que no existe en español ni en inglés y suena casi igual que un término de cinco sonidos o más se reemplaza en tu equipo (`homelapse` pasa a `homelab`, `Dipsick` a `DeepSeek`, `Ocidian` a `Obsidian`). La comparación iguala b/v/w, p/b, t/d, c/k/q y la h muda, y acepta un sonido distinto (dos en términos largos). Si lo oído es una palabra real (`baúl`, `pilot`, `cloud`), nunca se reemplaza localmente: solo llega al editor IA como pista de contexto. Tampoco se tocan las formas `~`, las palabras que empiezan por el término (`backlogs`, `commitear`), siglas, cifras, rutas, archivos ni términos con espacios, dígitos o de menos de cinco sonidos. La lista de palabras reales es local (frecuencias de OpenSubtitles, ver avisos de terceros).
 
 **Aprendizaje:** al pulsar **Corregir** en el historial o **Corregir último dictado** en la bandeja, lo que sustituyes se aprende como `Término ~ cómo se oyó` (por ejemplo `Nova-Hub ~ novahup`). Cambia `~` por `=` si quieres que se reemplace siempre. Solo se aprenden cambios cortos que parecen nombres o jerga (mayúscula dentro de la frase, mayúsculas internas, guiones o palabras unidas). El texto que añades, las reescrituras largas, los números y las correcciones gramaticales no se aprenden. No reentrena el modelo: aprende un diccionario de pistas. Puedes desactivar este aprendizaje y revisar o borrar entradas. No detecta ediciones realizadas en otras aplicaciones. El reconocimiento de nombres sigue sin ser infalible.
 
@@ -82,6 +83,12 @@ Banco de voz con grabaciones propias (fuera del repositorio): WER normalizado (s
 
 ```powershell
 dotnet run --project tests/Notaker.Tests -c Release --no-restore -- --voice-eval AUDIO REFERENCIA vocabulary.json ggml-large-v3-turbo-q8_0.bin SALIDA.json mixed [TERMINOS]
+```
+
+Recuento del vocabulario sobre tu historial local (solo lectura): reemplazos por formas `=` y por sonido y pistas para la IA. `--show-forms` añade cada coincidencia por sonido como `oído -> término` para revisarlas a mano en tu equipo:
+
+```powershell
+dotnet run --project tests/Notaker.Tests -c Release --no-restore -- --vocabulary-eval $env:LOCALAPPDATA\Notaker\history.json $env:LOCALAPPDATA\Notaker\vocabulary.json [--show-forms]
 ```
 
 El contexto del fragmento anterior en vivo (`"LiveContext": true` en `settings.json`, desactivado por defecto) añade al glosario hasta 200 caracteres del texto ya reconocido, corregidos con el vocabulario y dentro del mismo límite de 600 caracteres. En el banco no mejoró la precisión, así que sigue apagado.
