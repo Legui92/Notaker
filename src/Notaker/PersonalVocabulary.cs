@@ -45,7 +45,7 @@ public static partial class PersonalVocabulary
         var right = line[(i + 1)..];
         var end = right.IndexOfAny([' ', '\t', ',', '=', '~']);
         right = end < 0 ? right : right[..end];
-        return Key(left).Length >= 2 && char.IsLetterOrDigit(left[^1]) && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
+        return left.Length >= 2 && Key(left).Length > 0 && (char.IsLetterOrDigit(left[^1]) || left[^1] is '#' or '+') && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
             && right.Length >= 2 && right.All(c => char.IsLetter(c) || c is '-' or '\'' or '’');
     }
 
@@ -64,8 +64,9 @@ public static partial class PersonalVocabulary
             (line[separators[s]] == '=' ? always : context).AddRange(line[start..end].Split(',').Select(h => h.Trim())
                 .Where(h => h.Length >= 2 && h.Any(char.IsLetter) && Key(h) != Key(term)));
         }
-        // A single letter or digit is a formula or a symbol ("E = mc2", "F = ma"), never a replacement rule.
-        if (Key(term).Length < 2 || always.Count + context.Count == 0) return new VocabularyEntry(line, [], []);
+        // A term of a single character is a formula or a symbol ("E = mc2", "F = ma"), never a replacement rule.
+        // "C# = c sharp" or "C++ = c plus plus" are written with more characters and keep their rules.
+        if (Key(term).Length == 0 || term.Length < 2 || always.Count + context.Count == 0) return new VocabularyEntry(line, [], []);
         return Merge(new VocabularyEntry(term, [], []), always, context);
     }
 
@@ -128,8 +129,10 @@ public static partial class PersonalVocabulary
             var (term, index) = PhraseIn(corrected, newSpan);
             var heard = string.Join(" ", oldSpan);
             if (Key(term).Length < 3 || newSpan.All(Common.Contains)) continue;
-            var sentenceStart = corrected[..index].TrimEnd() is var prefix && (prefix.Length == 0 || prefix[^1] is '.' or '!' or '?' or '¿' or '¡' or ':' or '\n');
-            if (caseOnly) { if (!sentenceStart && (IsWritten(term) || char.IsUpper(term[0]))) learned.Add(term); continue; }
+            var sentenceStart = IsSentenceStart(corrected, index);
+            // Case only: the term enters the glossary, never as a rule. A term with spelling variants (inner capitals
+            // or hyphens: "DeepSeek", "LaTeX") would rewrite every lowercase use ("guantes de latex"), so it is not learned.
+            if (caseOnly) { if (!sentenceStart && char.IsUpper(term[0]) && !HasSpellingVariants(term)) learned.Add(term); continue; }
             var looksLikeName = IsWritten(term) || (char.IsUpper(term[0]) && !sentenceStart);
             // Same letters: a spelling fix ("novahub" -> "Nova-Hub") or joined words ("work tree" -> "worktree").
             if (Key(term) == Key(heard)) { if (looksLikeName || newSpan.Count != oldSpan.Count) learned.Add(term); continue; }
@@ -137,6 +140,18 @@ public static partial class PersonalVocabulary
         }
         return learned.DistinctBy(l => Key(Parse(l).Term)).Take(10).ToList();
     }
+
+    // The start of the text or of a line, a list item ("- ", "• ", "1. ") or a word after . ! ? ¿ ¡ or :.
+    private static bool IsSentenceStart(string corrected, int index)
+    {
+        var before = corrected[..index];
+        var line = before[(before.LastIndexOf('\n') + 1)..].Trim();
+        if (line.Length == 0 || ListMarker().IsMatch(line)) return true;
+        return line[^1] is '.' or '!' or '?' or '¿' or '¡' or ':';
+    }
+
+    [GeneratedRegex(@"^(?:[-*•]|\d{1,3}[.)])$", RegexOptions.CultureInvariant)]
+    private static partial Regex ListMarker();
 
     // Keeps the corrected spelling, including hyphens between the words ("Nova-Hub").
     private static (string Text, int Index) PhraseIn(string corrected, List<string> span)
