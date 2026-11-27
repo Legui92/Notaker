@@ -22,7 +22,7 @@
   <ItemGroup>
     <Resource Include="Assets/notaker.png" />
     <Resource Include="Assets/notaker.ico" />
-    <EmbeddedResource Include="Assets/known-words.txt" LogicalName="Notaker.known-words.txt" />
+    <EmbeddedResource Include="Assets/known-words.txt.gz" LogicalName="Notaker.known-words.txt.gz" />
     <PackageReference Include="Whisper.net" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.0" />

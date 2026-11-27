@@ -47,6 +47,8 @@ public partial class MainWindow : Window
         showNotifications = dataRoot == null;
         storage = new Storage(dataRoot);
         recovery = new RecoveryStore(storage.Root);
+        // The known-words list for sound matching takes about a third of a second to load: do it before the first dictation.
+        _ = Task.Run(PersonalVocabulary.WarmUp);
         InitializeComponent();
         overlay.CancelRequested += () => { if (dictationCancellation != null) { timer.Stop(); overlay.Update("Cancelando…", busy: true, canCancel: false); dictationCancellation.Cancel(); if (!busy) operation = CancelRecordingAsync(); } };
         RefreshRecovery();

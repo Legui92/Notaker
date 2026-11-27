@@ -50,19 +50,22 @@ static class VocabularyChecks
         check(kept.SequenceEqual(["E=mc2", "Pi = 3.14", "Claude ~ cloud", "Cloud"]), "Old entries with symbols and real words survive normalization: " + string.Join(" | ", kept));
         check(PersonalVocabulary.Apply("pi vale 3.14", kept) == "pi vale 3.14", "Legacy entries with '=' and no spoken form are not rules");
 
-        // Sound matches (vocabulario fonético): new mis-hearings that are not real words become the term locally.
-        string[] jargon = ["Nova-Hub = novahup", "Claude ~ cloud", "DeepSeek", "Obsidian", "homelab", "worktree", "worktrees", "vault", "backlog", "commit", "pipeline", "Orca", "eli5", "UNA", ".NET", "Mercado Libre"];
+        // Sound matches (vocabulario fonético). Local replacement only for unknown words that sound exactly like a term
+        // of five or six sounds, or one sound apart from a term of seven or more with the same first and last sound.
+        string[] jargon = ["Nova-Hub = novahup", "Claude ~ cloud", "DeepSeek", "Obsidian", "homelab", "worktree", "worktrees", "vault", "backlog", "commit", "pipeline", "Codex", "PowerShell", "passkey", "Orca", "eli5", "UNA", ".NET", "Mercado Libre"];
         check(PersonalVocabulary.IsKnownWord("baúl") && PersonalVocabulary.IsKnownWord("Baul") && PersonalVocabulary.IsKnownWord("couldn't") && PersonalVocabulary.IsKnownWord("pilot")
             && !PersonalVocabulary.IsKnownWord("homelapse") && !PersonalVocabulary.IsKnownWord("Dipsick"), "Known words are recognized with or without accents and English clitics");
+        check(PersonalVocabulary.IsKnownWord("cantárselas") && PersonalVocabulary.IsKnownWord("cafecitos"), "Enclitics and diminutives of listed words are real words");
         check(PersonalVocabulary.SoundKey("DeepSeek") == PersonalVocabulary.SoundKey("Dipsick") && PersonalVocabulary.SoundKey("Nova-Hub") == PersonalVocabulary.SoundKey("novahoop"), "Spanish and English spellings of one sound share a key");
         foreach (var (heard, fixedText) in new[]
         {
-            ("Reinicia el homelapse esta tarde", "Reinicia el homelab esta tarde"),
-            ("Homelapse apagado desde ayer", "Homelab apagado desde ayer"),
-            ("crea otro Wordtree para la rama", "crea otro worktree para la rama"),
-            ("guardo notas en Ocidian o en Oxidian", "guardo notas en Obsidian o en Obsidian"),
+            ("Reinicia el homelap esta tarde", "Reinicia el homelab esta tarde"),
+            ("Homelap apagado desde ayer", "Homelab apagado desde ayer"),
             ("le pido a Dipsick que resuma", "le pido a DeepSeek que resuma"),
             ("revisa Novahoop mañana", "revisa Nova-Hub mañana"),
+            ("haz un komit y abre la paskey", "haz un commit y abre la passkey"),
+            ("guardo notas en Obsidyan", "guardo notas en Obsidian"),
+            ("abre Powerchel y el Pipelaine", "abre PowerShell y el pipeline"),
         })
         {
             var result = PersonalVocabulary.Apply(heard, jargon, out var n);
@@ -71,24 +74,56 @@ static class VocabularyChecks
         }
         foreach (var correct in new[]
         {
-            // Real Spanish and English words that sound like a term stay as dictated.
+            // Real Spanish and English words that sound like a term stay as dictated (independent review, round 1).
             "Lo guardé en el baúl, el baul y la bóveda. The pilot hit a frag, a flack and a bubble; pass the piloto.",
             "Subí fotos al cloud y a la Cloud pública. Un homenaje a la obsidiana con un vaso de horchata.",
+            "coders, codearse, postcode, optician, gomita, glande, besugo, ponérsela, bebérselo, obstina, portly, backlot, basked, cowhide.",
             // Inflections and Spanglish verbs that start with a term, other terms and protected spellings.
             "Revisa los backlogs, commitear y commiteado, los worktrees, el homelab y Obsidian.",
             // Symbols, paths, handles, files, numbers, acronyms, phrases and line breaks.
-            "Usa .NET, abre homelapse.txt, C:\\homelapse\\x, @homelapse, #Ocidian, homelapse_2 y homelapse2. El 20-26 de junio, 3,5 %, HOMELAPSE y UNA reunión.",
-            "Mercado Libre y el mercado libre. home\nlapse, Dip\nsick.",
+            "Usa .NET, abre homelap.txt, C:\\homelap\\x, @homelap, #Opsidian, homelap_2 y homelap2. El 20-26 de junio, 3,5 %, HOMELAP y UNA reunión.",
+            "Mercado Libre y el mercado libre. home\nlap, Dip\nsick.",
             // Ordinary dictation in both languages.
             "Mañana a las 9:30 revisamos el presupuesto con Juan, después enviamos el documento. The build broke twice and the chart looks wrong since Friday.",
         })
             check(PersonalVocabulary.Apply(correct, jargon, out var none) == correct && none == 0, "Correct text and real words are never rewritten by sound: " + PersonalVocabulary.Apply(correct, jargon));
+        // Threshold rules, one probe each: every unknown word below is only a hint, never a replacement.
+        foreach (var (heard, term, distance, rule) in new[]
+        {
+            ("homelop", "homelab", 1, "terms under seven sounds need the same sounds"),
+            ("Obsetien", "Obsidian", 2, "longer terms allow one sound edit locally and two only as a hint"),
+            ("Homelapse", "homelab", 1, "the last sound must agree"),
+            ("Obsidiam", "Obsidian", 1, "the last sound must agree"),
+            ("Oxidian", "Obsidian", 1, "a listed word (occitan) sounds as close"),
+            ("Wordtree", "worktree", 1, "a listed word (poetry) sounds as close"),
+        })
+            check(PersonalVocabulary.SoundMatches(heard, jargon) is [{ Local: false } m] && m.Term == term && m.Distance == distance && PersonalVocabulary.Apply(heard, jargon) == heard, $"Sound threshold: {heard} stays a hint because {rule}");
+        check(!PersonalVocabulary.SoundMatches("Bipsick y Tomelab", jargon).Any(), "The first sound must agree, even for hints");
         var hints = PersonalVocabulary.SoundHints("puse la llave en el baúl y la nota en Obsidian, Cloud lo sabe", jargon);
         check(hints.TryGetValue("vault", out var vaultHints) && vaultHints.SequenceEqual(["baúl"]) && !hints.ContainsKey("Claude"), "Real-word sound-alikes are only AI hints, never for listed '~' forms: " + string.Join(" | ", hints.Select(h => h.Key + "=" + string.Join(",", h.Value))));
         check(PersonalVocabulary.Apply("pregunta a Cloude", jargon) == "pregunta a Cloude" && PersonalVocabulary.SoundHints("pregunta a Cloude", jargon)["Claude"].SequenceEqual(["cloude"]), "A word that sounds like a '~' form stays a hint, never a replacement");
+        check(PersonalVocabulary.Apply("abre el Workctree", jargon) == "abre el worktree" && PersonalVocabulary.Apply("abre el Workctree", ["worktree ~ work three"]) == "abre el Workctree", "A long term whose '~' form sounds the same is never replaced by sound");
         check(PersonalVocabulary.SoundMatches("Dip sick lo limpia", jargon) is [{ Term: "DeepSeek", Local: false }], "A phrase of real words is a hint, not a replacement");
         check(!PersonalVocabulary.SoundMatches("el orka y el eli", jargon).Any(), "Short terms and terms with digits are never sound targets");
         check(!PersonalVocabulary.SoundMatches("abre Dipsik", ["DeepSeek", "Deepsick"]).Any(), "Ties between two terms are not guessed");
+        // Without the word list (missing or damaged resource) nothing is replaced or hinted by sound, and nothing throws.
+        var source = PersonalVocabulary.KnownWordsSource;
+        try
+        {
+            foreach (var broken in new Func<Stream?>[] { () => null, () => new MemoryStream([1, 2, 3, 4]) })
+            {
+                PersonalVocabulary.KnownWordsSource = broken;
+                PersonalVocabulary.ResetKnownWords();
+                check(PersonalVocabulary.Apply("Reinicia el homelap y novahup", jargon) == "Reinicia el homelap y Nova-Hub" && PersonalVocabulary.SoundHints("en el baúl", jargon).Count == 0,
+                    "Without the known-words list sound matching is off and '=' forms still apply");
+            }
+        }
+        finally
+        {
+            PersonalVocabulary.KnownWordsSource = source;
+            PersonalVocabulary.ResetKnownWords();
+        }
+        check(PersonalVocabulary.Apply("Reinicia el homelap", jargon) == "Reinicia el homelab", "Sound matching comes back with the list");
 
         var prompt = PersonalVocabulary.Prompt(vocabulary);
         check(prompt.StartsWith("Glosario: ") && prompt.Contains("Nova-Hub") && prompt.Contains("Claude") && !prompt.Contains("novahup") && !prompt.Contains("cloud"), "Whisper receives only correctly spelled terms: " + prompt);
