@@ -132,11 +132,12 @@ internal static class VoiceEval
             return session.ToArray();
         }
 
-        async Task Live(string config, int chunkSeconds, bool context)
+        async Task Live(string config, int chunkSeconds, bool context, byte[]? tail = null, string tailReference = "")
         {
             // One recording: blocks in order with 1.5 s of silence between them, fed in real time like the recorder.
-            var pcm = Session();
-            var reference = string.Join(" ", blocks.Select(b => b.Text));
+            // An optional quiet tail follows, below the speech threshold in every 100 ms frame.
+            var pcm = tail == null ? Session() : [.. Session(), .. tail];
+            var reference = string.Join(" ", blocks.Select(b => b.Text)) + (tailReference.Length > 0 ? " " + tailReference : "");
             var prompts = new List<string>();
             var watch = Stopwatch.StartNew();
             await using var live = new LiveTranscription((wav, previous, token) =>
@@ -152,11 +153,13 @@ internal static class VoiceEval
                 var due = TimeSpan.FromSeconds((offset + chunk.Length) / 32000.0) - watch.Elapsed;
                 if (due > TimeSpan.Zero) await Task.Delay(due);
             }
+            var wait = Stopwatch.StartNew();
             var raw = await live.CompleteAsync();
+            wait.Stop();
             var text = raw == null ? "" : PersonalVocabulary.Apply(raw, vocabulary);
             var score = Measure(reference, text, probes);
             var reason = live.FellBack ? string.Join(",", LogStages().Where(s => s.StartsWith("live.")).TakeLast(1)) : "";
-            Console.WriteLine($"{config} session: chunks={live.CompletedChunks} fallback={live.FellBack} {reason}");
+            Console.WriteLine($"{config} session: chunks={live.CompletedChunks} fallback={live.FellBack} finalWait={wait.Elapsed.TotalSeconds:F1}s {reason}");
             Finish(config, score, watch, [new { chunks = live.CompletedChunks, fellBack = live.FellBack, prompts, raw, text, score.Wer, score.Edits, score.Words, score.Hits, score.Expected, score.Repeats, score.Missed }]);
         }
 
@@ -186,6 +189,17 @@ internal static class VoiceEval
         await Batch("c-blocks-as-fragments-context", useGlossary: true, apply: true, context: true);
         await Live("live30-no-context", 30, context: false);
         await Live("live30-context", 30, context: true);
+        // Quiet final tail after the last cut (Ph3): room noise from these recordings, and the first block spoken softly.
+        var session = Session();
+        var noise = NoiseTail(audio.Select(Pcm), 3);
+        var soft = Soften(Pcm(audio[0]));
+        var tailChunk = TailCut(session, soft.Length);
+        Console.WriteLine($"tail noise: {AudioStats(noise)}");
+        Console.WriteLine($"tail soft: {AudioStats(soft)} cutSeconds={tailChunk}");
+        // Same cut length without a tail: fragment boundaries alone change a few words, so compare tails against this.
+        await Live($"live{tailChunk}-no-tail", tailChunk, context: false);
+        await Live("live-tail-noise", tailChunk, context: false, noise);
+        await Live("live-tail-soft", tailChunk, context: false, soft, blocks[0].Text);
         foreach (var seconds in new[] { 6, 12 })
         {
             await Fragments($"frag{seconds}-no-context", seconds, context: false);
@@ -231,6 +245,53 @@ internal static class VoiceEval
             else pieces[^1] = [.. pieces[^1], .. pending.ToArray()];
         }
         return pieces;
+    }
+
+    /// <summary>Nonzero frames at or below the speech threshold, in recording order, up to <paramref name="seconds"/>.</summary>
+    public static byte[] NoiseTail(IEnumerable<byte[]> recordings, int seconds)
+    {
+        var tail = new MemoryStream();
+        foreach (var pcm in recordings)
+            for (int offset = 0; offset + 3200 <= pcm.Length && tail.Length < seconds * 32000; offset += 3200)
+            {
+                var frame = pcm.AsSpan(offset, 3200).ToArray();
+                var level = Rms(frame);
+                if (level > 0 && level <= 0.005f) tail.Write(frame);
+            }
+        return tail.ToArray();
+    }
+
+    /// <summary>Scales speech so its loudest 100 ms frame sits just under the 0.006 RMS speech threshold.</summary>
+    public static byte[] Soften(byte[] pcm)
+    {
+        var loudest = Enumerable.Range(0, pcm.Length / 3200).Max(i => Rms(pcm.AsSpan(i * 3200, 3200).ToArray()));
+        var gain = 0.0055 / Math.Max(loudest, 1e-6);
+        var output = new byte[pcm.Length];
+        for (int j = 0; j + 1 < pcm.Length; j += 2)
+            BitConverter.TryWriteBytes(output.AsSpan(j, 2), (short)Math.Round(BitConverter.ToInt16(pcm, j) * gain));
+        return output;
+    }
+
+    /// <summary>Smallest live cut length that lands the last cut in the session's trailing pause and leaves the tail uncut.</summary>
+    public static int TailCut(byte[] session, int tailBytes)
+    {
+        for (var seconds = tailBytes / 32000 + 2; seconds <= 60; seconds++)
+            if (LastCutAtEnd(session, seconds)) return seconds;
+        throw new InvalidDataException("No cut length isolates the tail");
+    }
+
+    private static bool LastCutAtEnd(byte[] session, int minimumSeconds)
+    {
+        // Mirrors LiveTranscription.Append: the last cut must happen within the final 1.5 s of silence.
+        int silent = 0; long pending = 0; long lastCut = -1;
+        for (int offset = 0; offset < session.Length; offset += 3200)
+        {
+            var frame = session.AsSpan(offset, Math.Min(3200, session.Length - offset)).ToArray();
+            pending += frame.Length;
+            if (Rms(frame) > 0.006f) silent = 0; else silent += frame.Length;
+            if (pending >= minimumSeconds * 32000 && silent >= 22400) { lastCut = offset + frame.Length; pending = 0; silent = 0; }
+        }
+        return lastCut >= session.Length - 48000;
     }
 
     private static float Rms(byte[] chunk)
