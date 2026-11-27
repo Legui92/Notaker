@@ -33,8 +33,21 @@ public static partial class PersonalVocabulary
         return key.ToString();
     }
 
+    /// <summary>
+    /// Identity of an entry: its letter key, or its spelling without spaces when it has one letter or none, so
+    /// "C#" and "C++" (both "c") stay two terms while "Nova-Hub" and "nova hub" stay one.
+    /// </summary>
+    public static string EntryKey(string term)
+    {
+        var key = Key(term);
+        return key.Length > 1 ? key : string.Concat(term.Normalize(NormalizationForm.FormC).Where(c => !char.IsWhiteSpace(c))).ToLowerInvariant();
+    }
+
     // "Term = heard": a separator with a space on one side, or a tight one between a written term and a
-    // spoken word ("X-Hub=xhup"). "E=mc2", "Pi=3.14" or "a=b" stay plain terms.
+    // spoken word ("X-Hub=xhup"). "E=mc2", "Pi=3.14", "a=b" or chemical formulas ("H2O=agua", "NaCl=sal")
+    // stay plain terms. A term ending in a symbol is a rule only when the spoken word starts with its first
+    // letter ("C#=csharp", "C++=cplusplus"): "a+=bb" or "x#=yy" are code. With spaces ("F# = efe sharp") any
+    // spoken word counts.
     private static bool IsSeparator(string line, int i) => line[i] is '=' or '~'
         && ((i > 0 && char.IsWhiteSpace(line[i - 1])) || (i + 1 < line.Length && char.IsWhiteSpace(line[i + 1])) || IsTightSeparator(line, i));
 
@@ -45,8 +58,27 @@ public static partial class PersonalVocabulary
         var right = line[(i + 1)..];
         var end = right.IndexOfAny([' ', '\t', ',', '=', '~']);
         right = end < 0 ? right : right[..end];
-        return left.Length >= 2 && Key(left).Length > 0 && (char.IsLetterOrDigit(left[^1]) || left[^1] is '#' or '+') && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
-            && right.Length >= 2 && right.All(c => char.IsLetter(c) || c is '-' or '\'' or '’');
+        if (!(left.Length >= 2 && Key(left).Length > 0 && (char.IsLetterOrDigit(left[^1]) || left[^1] is '#' or '+') && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
+            && right.Length >= 2 && right.All(c => char.IsLetter(c) || c is '-' or '\'' or '’'))) return false;
+        if (IsChemicalFormula(left)) return false;
+        return char.IsLetterOrDigit(left[^1]) || Key(right).StartsWith(Key(left)[0]);
+    }
+
+    private static readonly HashSet<string> Elements = new(("H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn Ga Ge As Se Br Kr " +
+        "Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn " +
+        "Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og").Split(' '), StringComparer.Ordinal);
+
+    [GeneratedRegex(@"\G([A-Z][a-z]?)(\d*)", RegexOptions.CultureInvariant)]
+    private static partial Regex FormulaPart();
+
+    // Element symbols with counts and at least one digit or two-letter symbol ("H2O", "NaCl", "CO2"). All-capital
+    // acronyms without digits ("PR", "IT", "CS") are not formulas.
+    private static bool IsChemicalFormula(string text)
+    {
+        var parts = FormulaPart().Matches(text);
+        if (parts.Sum(m => m.Length) != text.Length || !parts.All(m => Elements.Contains(m.Groups[1].Value))) return false;
+        var hasDigit = text.Any(char.IsDigit);
+        return (hasDigit || parts.Count >= 2) && (hasDigit || text.Any(char.IsLower));
     }
 
     public static VocabularyEntry Parse(string line)
@@ -90,7 +122,7 @@ public static partial class PersonalVocabulary
             if (trimmed.Length is < 2 or > MaxLineLength || trimmed.Any(char.IsControl)) continue;
             var entry = Parse(trimmed);
             if (Key(entry.Term).Length == 0) continue;
-            var index = entries.FindIndex(e => Key(e.Term) == Key(entry.Term));
+            var index = entries.FindIndex(e => EntryKey(e.Term) == EntryKey(entry.Term));
             if (index < 0) entries.Add(entry);
             else
             {
@@ -101,7 +133,7 @@ public static partial class PersonalVocabulary
         }
         // A "~" form is a real word: a bare entry with that spelling is kept.
         var replacedKeys = entries.SelectMany(e => e.Always).Select(Key).ToHashSet();
-        return entries.Where(e => e.HeardAs.Any() || !replacedKeys.Contains(Key(e.Term))).Take(MaxEntries).ToList();
+        return entries.Where(e => e.HeardAs.Any() || !replacedKeys.Contains(EntryKey(e.Term))).Take(MaxEntries).ToList();
     }
 
     // Inner capitals or symbols such as hyphens carry spelling information; spaces or a capitalized first letter alone do not.
@@ -138,19 +170,23 @@ public static partial class PersonalVocabulary
             if (Key(term) == Key(heard)) { if (looksLikeName || newSpan.Count != oldSpan.Count) learned.Add(term); continue; }
             if (looksLikeName) learned.Add($"{term} ~ {heard}");
         }
-        return learned.DistinctBy(l => Key(Parse(l).Term)).Take(10).ToList();
+        return learned.DistinctBy(l => EntryKey(Parse(l).Term)).Take(10).ToList();
     }
 
-    // The start of the text or of a line, a list item ("- ", "• ", "1. ") or a word after . ! ? ¿ ¡ or :.
+    // The start of the text or of a line, a list item ("- ", "• ", "1. ", "a) ") or a word after . ! ? ¿ ¡ : or …,
+    // also behind opening quotes, brackets or a dialogue dash ("«Luego", "—Luego", "… «Luego"). A dash or a quote
+    // inside a sentence ("fui —con Claude", "dijo «Claude»") is not a start.
     private static bool IsSentenceStart(string corrected, int index)
     {
         var before = corrected[..index];
         var line = before[(before.LastIndexOf('\n') + 1)..].Trim();
+        if (line.Length > 0 && line[^1] is '¿' or '¡') return true;
+        line = line.TrimEnd('«', '"', '“', '‘', '\'', '(', '[', '—', '–', ' ');
         if (line.Length == 0 || ListMarker().IsMatch(line)) return true;
-        return line[^1] is '.' or '!' or '?' or '¿' or '¡' or ':';
+        return line[^1] is '.' or '!' or '?' or '¿' or '¡' or ':' or '…';
     }
 
-    [GeneratedRegex(@"^(?:[-*•]|\d{1,3}[.)])$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"^(?:[-*•]|\d{1,3}[.)]|[a-zA-Z][.)])$", RegexOptions.CultureInvariant)]
     private static partial Regex ListMarker();
 
     // Keeps the corrected spelling, including hyphens between the words ("Nova-Hub").
@@ -253,13 +289,20 @@ public static partial class PersonalVocabulary
         term.Length >= 3 && char.IsLetter(term[0]) && char.IsLetter(term[^1]) && term.All(c => char.IsLetter(c) || c == '-')
         && (term.Contains('-') || term.Skip(1).Any(char.IsUpper)) && term.Any(char.IsLower);
 
+    // Words that join into everyday compounds ("read-only", "know-how", "check-out"). Only used for hyphenated
+    // terms: Learn keeps its own list of common words.
+    private static readonly HashSet<string> OrdinaryParts = new(("read write only know how check out off back down over under self well built " +
+        "real time full open close end front high low long short user sign set log make take follow pop drop pick look run start stop give get free side line " +
+        "cut break push pull lock all any one two non pre post").Split(' '), StringComparer.OrdinalIgnoreCase);
+
     // Variants of a written term: case, and a space or hyphen where the term has a hyphen ("nova hub" -> "Nova-Hub").
-    // A part of two letters or less, or a common word, makes the spaced and joined forms ordinary text ("what to do",
-    // "a team", "login"): then only the case of the hyphenated form varies.
+    // A part of two letters or less, a common word or an everyday compound part makes the spaced and joined forms
+    // ordinary text ("what to do", "a team", "login", "read only", "git checkout"): then only the case of the
+    // hyphenated form varies.
     private static string VariantPattern(string term)
     {
         var parts = term.Split('-', StringSplitOptions.RemoveEmptyEntries);
-        var separator = parts.Any(p => p.Length <= 2 || Common.Contains(p)) ? "-" : "[ -]?";
+        var separator = parts.Any(p => p.Length <= 2 || Common.Contains(p) || OrdinaryParts.Contains(p)) ? "-" : "[ -]?";
         return string.Join(separator, parts.Select(Regex.Escape));
     }
 
