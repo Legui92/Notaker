@@ -238,13 +238,13 @@ public partial class MainWindow : Window
             catch (OperationCanceledException) when (DictationToken.IsCancellationRequested) { throw; }
             catch (OperationCanceledException) when (polishRequest.IsCancellationRequested)
             {
-                text = rawText;
+                text = beforeAi;
                 polishWarning = "Se usó el texto original sin esperar a la IA.";
                 AppLog.Write("polish.skipped");
             }
             catch (Exception ex)
             {
-                text = rawText;
+                text = beforeAi;
                 polishWarning = "Se conservó el texto original. " + ex.Message;
                 AppLog.Write(ex is TimeoutException ? "polish.timeout" : "polish.failed", ex);
             }

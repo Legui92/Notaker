@@ -159,9 +159,14 @@ try
     Check(PersonalVocabulary.Prompt(Enumerable.Range(0, 100).Select(i => "Terminología" + i)).Length <= 600, "Whisper vocabulary prompt stays bounded");
     storage.SaveVocabulary(["Notaker"]);
     storage.Add(sample);
-    var learned = storage.Correct(sample, "Reunión con Luzia en Notaker.");
+    var learned = storage.Correct(sample, "Español: reunión mañana. English: let's go, Luzia!");
+    Check(learned == 0, "Added words are not learned");
+    learned = storage.Correct(storage.History[0], "Español: reunión mañana con Luzia. English: let's go, Luzia!");
     reloaded = new Storage(root);
-    Check(learned == 1 && reloaded.Vocabulary.Contains("Luzia") && reloaded.History[0].OriginalText == sample.Text, "Corrections preserve original text and persist learned words");
+    Check(learned == 0 && reloaded.History[0].OriginalText == sample.Text, "Corrections preserve original text");
+    learned = storage.Correct(reloaded.History[0], "Español: reunión mañana con Luzia. English: let's go, Lucía!");
+    reloaded = new Storage(root);
+    Check(learned == 1 && reloaded.Vocabulary.Contains("Lucía ~ Luzia") && reloaded.History[0].OriginalText == sample.Text, "Corrections persist learned pairs: " + string.Join(" | ", reloaded.Vocabulary));
     storage.Settings.LearnVocabulary = false;
     storage.Correct(storage.History[0], "Reunión con QwertyCorp.");
     Check(!new Storage(root).Vocabulary.Contains("QwertyCorp"), "Learning opt-out prevents vocabulary collection");
