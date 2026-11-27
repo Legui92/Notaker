@@ -83,12 +83,14 @@ public sealed class TextPolisher : IDisposable
             AppLog.Write("polish.timing", elapsedMs: watch.Elapsed.TotalMilliseconds, succeeded: succeeded, responseHeadersMs: headersMs);
         }
     }
-    // Real words in this dictation that sound like a term ("baúl" for vault) join its context-only forms:
+    /// <summary>Sound hints on (default). Off only in the accuracy bench, to compare against v0.11.1 prompts.</summary>
+    internal bool SoundHints { get; init; } = true;
+    // Words of this dictation that sound like a term ("homelap", "baúl" for vault) join its context-only forms:
     // the editor decides them by meaning, nothing is replaced locally.
-    private static IEnumerable<object> Vocabulary(string text, IEnumerable<string> lines)
+    private IEnumerable<object> Vocabulary(string text, IEnumerable<string> lines)
     {
         var list = lines as IList<string> ?? lines.ToList();
-        var hints = PersonalVocabulary.SoundHints(text, list);
+        var hints = SoundHints ? PersonalVocabulary.SoundHints(text, list) : new Dictionary<string, List<string>>();
         return PersonalVocabulary.Entries(list).Select(e => new { term = e.Term, heard_as = e.Always, context_only = hints.TryGetValue(e.Term, out var heard) ? [.. e.Context, .. heard] : e.Context });
     }
     public void Dispose() => http.Dispose();

@@ -211,6 +211,52 @@ internal static class VoiceEval
         try { Directory.Delete(logRoot, true); } catch (IOException) { }
     }
 
+    /// <summary>
+    /// Real AI cleanup on the bench (never part of the normal suite; it spends API credit): batch recognition with
+    /// the glossary and Apply, then one DeepSeek call per block without sound hints (v0.11.1 prompt) and one with
+    /// them, skipped when a block has no hints because the request would be identical. SETTINGS is the app's
+    /// settings.json, read only; the key is decrypted in memory and never printed. Console output has counts only.
+    /// Usage: --voice-eval-ai AUDIO_DIR REFERENCE VOCAB MODEL OUTPUT LANGUAGE SETTINGS [TERMS]
+    /// </summary>
+    public static async Task RunAi(string audioDir, string referencePath, string vocabularyPath, string model, string output, string language, string settingsPath, string? termsPath)
+    {
+        Whisper.net.LibraryLoader.RuntimeOptions.RuntimeLibraryOrder = [Whisper.net.LibraryLoader.RuntimeLibrary.Vulkan];
+        logRoot = Path.Combine(Path.GetTempPath(), "Notaker-tests-voice-eval-" + Guid.NewGuid());
+        AppLog.Configure(logRoot);
+        using var settings = JsonDocument.Parse(File.ReadAllText(settingsPath));
+        var key = SecretStore.Unprotect(settings.RootElement.GetProperty("ProtectedApiKey").GetString() ?? "");
+        var apiModel = settings.RootElement.GetProperty("ApiModel").GetString() ?? "";
+        if (key.Length == 0) throw new InvalidOperationException("No API key in settings");
+        var blocks = ParseReference(File.ReadAllText(referencePath));
+        var vocabulary = ReadVocabulary(vocabularyPath);
+        IEnumerable<string> extra = termsPath == null ? [] : File.ReadAllLines(termsPath).Select(l => l.Trim()).Where(l => l.Length > 0);
+        var probes = PersonalVocabulary.Entries(vocabulary).Select(e => e.Term).Concat(extra).Distinct().ToList();
+        var glossary = PersonalVocabulary.Prompt(vocabulary);
+        using var engine = new Transcriber();
+        await engine.PrepareAsync(model, true, CancellationToken.None);
+        using var plain = new TextPolisher { SoundHints = false };
+        using var hinted = new TextPolisher();
+        var totals = new Dictionary<string, Score> { ["local"] = Score.Empty, ["ai-no-hints"] = Score.Empty, ["ai-hints"] = Score.Empty };
+        var rows = new List<object>(); var calls = 0;
+        foreach (var block in blocks)
+        {
+            var wav = File.ReadAllBytes(Path.Combine(audioDir, $"bloque{block.Block}.wav"));
+            var local = PersonalVocabulary.Apply(await engine.TranscribeAsync(model, wav, language, CancellationToken.None, glossary), vocabulary);
+            var hints = PersonalVocabulary.SoundHints(local, vocabulary);
+            var withoutHints = PersonalVocabulary.Apply(await plain.PolishAsync(local, key, apiModel, vocabulary, CancellationToken.None), vocabulary); calls++;
+            var withHints = withoutHints;
+            if (hints.Count > 0) { withHints = PersonalVocabulary.Apply(await hinted.PolishAsync(local, key, apiModel, vocabulary, CancellationToken.None), vocabulary); calls++; }
+            var scores = new Dictionary<string, Score> { ["local"] = Measure(block.Text, local, probes), ["ai-no-hints"] = Measure(block.Text, withoutHints, probes), ["ai-hints"] = Measure(block.Text, withHints, probes) };
+            foreach (var (config, score) in scores) { totals[config] += score; Console.WriteLine($"{config} bloque{block.Block}: {score}"); }
+            Console.WriteLine($"bloque{block.Block}: soundHints={hints.Sum(h => h.Value.Count)} aiEditsNoHints={TextMetrics.WordEdits(local, withoutHints)} aiEditsHints={TextMetrics.WordEdits(local, withHints)}");
+            rows.Add(new { block = block.Block, reference = block.Text, local, hints, withoutHints, withHints, scores = scores.ToDictionary(s => s.Key, s => new { s.Value.Wer, s.Value.Edits, s.Value.Hits, s.Value.Expected, s.Value.Missed }) });
+        }
+        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new { model = Path.GetFileName(model), apiModel, language, calls, rows }, new JsonSerializerOptions { WriteIndented = true }));
+        Console.WriteLine($"SUMMARY apiCalls={calls}");
+        foreach (var (config, total) in totals) Console.WriteLine($"{config}: {total}");
+        try { Directory.Delete(logRoot, true); } catch (IOException) { }
+    }
+
     private static string logRoot = "";
     // Structural log stages only (the app log never holds dictated text).
     private static IEnumerable<string> LogStages()
