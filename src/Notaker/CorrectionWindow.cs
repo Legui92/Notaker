@@ -13,7 +13,7 @@ internal sealed class CorrectionWindow : Window
         MinWidth = 480; MinHeight = 380; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(14, 16, 32));
         var panel = new DockPanel { Margin = new Thickness(24) };
-        var header = new TextBlock { Text = learning ? "Corrige el texto. Las palabras nuevas se aprenderán para próximos dictados." : "Corrige el texto. El aprendizaje de vocabulario está desactivado.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
+        var header = new TextBlock { Text = learning ? "Corrige el texto. Las palabras que cambies se aprenderán junto a cómo se oyeron, para próximos dictados." : "Corrige el texto. El aprendizaje de vocabulario está desactivado.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
         DockPanel.SetDock(header, Dock.Top); panel.Children.Add(header);
         var save = new Button { Content = "Guardar corrección", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
         save.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(editor!.Text)) DialogResult = true; };

@@ -219,6 +219,9 @@ public partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(text)) { SetStatus("No se obtuvo texto", "Intenta hablar más cerca del micrófono."); await ShowOverlayMessage("Sin texto reconocido"); return; }
         recovery.SaveText(recoveryId, text);
         var rawText = text;
+        text = PersonalVocabulary.Apply(text, storage.Vocabulary, out var vocabularyReplacements);
+        if (vocabularyReplacements > 0) AppLog.Write("vocabulary.applied", count: vocabularyReplacements);
+        var beforeAi = text;
         string? polishWarning = null;
         int? aiWordEdits = null;
         if (storage.Settings.CleanWithAi)
@@ -230,7 +233,7 @@ public partial class MainWindow : Window
             UseOriginalButton.Visibility = Visibility.Visible;
             AppLog.Write("polish.started");
             var polishWatch = Stopwatch.StartNew();
-            try { text = await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, polishRequest.Token); AppLog.Write("polish.completed"); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(rawText, text)); }
+            try { text = PersonalVocabulary.Apply(await polisher.PolishAsync(text, SecretStore.Unprotect(storage.Settings.ProtectedApiKey), storage.Settings.ApiModel, storage.Vocabulary, polishRequest.Token), storage.Vocabulary); AppLog.Write("polish.completed"); if (storage.Settings.TrackStatistics) aiWordEdits = await Task.Run(() => TextMetrics.WordEdits(beforeAi, text)); }
             catch (OperationCanceledException) when (exiting) { throw; }
             catch (OperationCanceledException) when (DictationToken.IsCancellationRequested) { throw; }
             catch (OperationCanceledException) when (polishRequest.IsCancellationRequested)
