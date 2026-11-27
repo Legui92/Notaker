@@ -50,6 +50,48 @@ static class VocabularyChecks
         check(kept.SequenceEqual(["E=mc2", "Pi = 3.14", "Claude ~ cloud", "Cloud"]), "Old entries with symbols and real words survive normalization: " + string.Join(" | ", kept));
         check(PersonalVocabulary.Apply("pi vale 3.14", kept) == "pi vale 3.14", "Legacy entries with '=' and no spoken form are not rules");
 
+        // Debt from the independent reviews of PR 15 (N1-N6) and PR 18 (J18-3).
+        string[] hyphens = ["to-do", "A-Team", "Log-In", "Nova-Hub"];
+        check(PersonalVocabulary.Apply("what to do now, the a team, log in and login; TO-DO, a-team, LOG-IN", hyphens)
+            == "what to do now, the a team, log in and login; to-do, A-Team, Log-In", "N1: hyphenated terms with a short or common part only fix the case of the hyphenated form");
+        check(PersonalVocabulary.Apply("nova hub y novahub", hyphens) == "Nova-Hub y Nova-Hub", "N1: distinctive hyphenated terms keep their spaced and joined variants");
+        var tight = PersonalVocabulary.Parse("X-Hub=xhup");
+        check(tight.Term == "X-Hub" && tight.Always.SequenceEqual(["xhup"]), "N2: '=' without spaces between a written term and a spoken word is a rule: " + tight);
+        check(PersonalVocabulary.Parse("Nova-Hub=novahup~nova of").ToString() == "Nova-Hub = novahup ~ nova of", "N2: tight '=' and '~' round-trip");
+        var tightPrompt = PersonalVocabulary.Prompt(["X-Hub=xhup", "E=mc2"]);
+        check(tightPrompt == "Glosario: X-Hub, E=mc2." && PersonalVocabulary.Apply("abre xhup", ["X-Hub=xhup"]) == "abre X-Hub", "N2: the heard form never reaches the Whisper prompt: " + tightPrompt);
+        check(PersonalVocabulary.Normalize(["E=mc2", "a=b", "Pi=3.14", "C++=c plus"]).SequenceEqual(["E=mc2", "a=b", "Pi=3.14", "C++=c plus"]), "N2: formulas and numbers without spaces stay plain terms");
+        check(PersonalVocabulary.Normalize(["E = mc2", "F = ma"]).SequenceEqual(["E = mc2", "F = ma"]) && PersonalVocabulary.Apply("la mc2 y el ma", ["E = mc2", "F = ma"]) == "la mc2 y el ma",
+            "N4: a single letter is never a replacement rule");
+        check(PersonalVocabulary.Apply("abre nova hub pro y novahub", ["Foo = novahub", "Nova-Hub-Pro"]) == "abre Nova-Hub-Pro y Foo", "N5: the longest form by letters wins across heard forms and spelling variants");
+        check(PersonalVocabulary.Learn("pregunta a claude y a deepseek", "pregunta a Claude y a DeepSeek").SequenceEqual(["Claude"]), "N6: a change of case inside a sentence learns the term, never one with spelling variants");
+        var latex = PersonalVocabulary.Learn("guantes de latex y escribo en latex", "guantes de latex y escribo en LaTeX");
+        check(!latex.Any() && PersonalVocabulary.Apply("guantes de latex", latex) == "guantes de latex", "J19-3: a case-only change never creates a rewrite of the lowercase word: " + string.Join(" | ", latex));
+        check(PersonalVocabulary.Learn("le escribo a mercado libre", "le escribo a Mercado Libre").SequenceEqual(["Mercado Libre"]), "N6: a multi-word change of case learns the whole phrase");
+        check(!PersonalVocabulary.Learn("claude dice que sí. luego vamos", "Claude dice que sí. Luego vamos").Any() && !PersonalVocabulary.Learn("pregunta a Claude", "pregunta a claude").Any()
+            && !PersonalVocabulary.Learn("abre el panel", "abre el panel de DeepSeek").Any(), "N6: sentence starts, lowercasing and added names are not learned");
+        check(PersonalVocabulary.Learn("pregunta a cloud y a mercado libre", "pregunta a Claude y a Mercado Libre").SequenceEqual(["Claude ~ cloud", "Mercado Libre"]), "N6: replacements and case changes in one correction");
+        foreach (var (raw, fixedList) in new[]
+        {
+            ("llamar a juan\ncomprar pan", "Llamar a juan\nComprar pan"),
+            ("- llamar a juan\n- comprar pan", "- Llamar a juan\n- Comprar pan"),
+            ("1. llamar a juan\n2) comprar pan\n• enviar fotos", "1. Llamar a juan\n2) Comprar pan\n• Enviar fotos"),
+            ("notas:\r\ncomprar pan", "notas:\r\nComprar pan"),
+        })
+            check(!PersonalVocabulary.Learn(raw, fixedList).Any(), "J19-2: capitals at the start of a line or list item are not learned: " + fixedList.Replace("\n", " / "));
+        check(PersonalVocabulary.Learn("hola\nescribe a claude", "hola\nescribe a Claude").SequenceEqual(["Claude"]), "J19-2: a case change inside a line after a line break is still learned");
+        check(PersonalVocabulary.Learn("tarea - pregunta a cloud", "tarea - pregunta a Claude").SequenceEqual(["Claude ~ cloud"]), "J19-2: a dash inside a sentence is not a list marker");
+        // J19-1: symbolic terms of more than one character keep their rules.
+        // C# and C++ share the letter key "c" and merge into one entry (pre-existing, backlog): they are checked apart.
+        string[] symbols = ["C# = c sharp", "F#=fsharp"];
+        check(PersonalVocabulary.Apply("uso c sharp y fsharp", symbols) == "uso C# y F#" && PersonalVocabulary.Apply("uso c plus plus", ["C++ = c plus plus"]) == "uso C++", "J19-1: C#, F# and C++ keep their heard forms");
+        var symbolPrompt = PersonalVocabulary.Prompt(symbols);
+        check(symbolPrompt == "Glosario: C#, F#." && PersonalVocabulary.Prompt(["C++ = c plus plus"]) == "Glosario: C++.", "J19-1: heard forms of symbolic terms stay out of the Whisper prompt: " + symbolPrompt);
+        string[] github = ["GitHub", "Nova-Hub = novahup"];
+        foreach (var address in new[] { "https://github.com/ana/x", "www.github.com", "ana@github.com", "C:\\novahup\\x", "github.com", "novahup.txt", "repo/novahup" })
+            check(PersonalVocabulary.Apply("abre " + address + " ya", github, out var touched) == "abre " + address + " ya" && touched == 0, "J18-3: addresses, paths and files are not rewritten: " + address);
+        check(PersonalVocabulary.Apply("sube a github y a novahup.", github) == "sube a GitHub y a Nova-Hub.", "J18-3: words at the end of a sentence are still replaced");
+
         // Sound hints (vocabulario fonético). Words that sound like a term are only hints for the AI editor: the local
         // text never changes by sound, only through "=" forms and spelling variants, exactly as in v0.11.1.
         string[] jargon = ["Nova-Hub = novahup", "Claude ~ cloud", "DeepSeek", "Obsidian", "homelab", "worktree", "worktrees", "vault", "backlog", "commit", "pipeline", "Codex", "PowerShell", "passkey", "Orca", "eli5", "UNA", ".NET", "Mercado Libre"];

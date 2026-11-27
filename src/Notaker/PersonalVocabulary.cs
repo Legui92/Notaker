@@ -33,9 +33,21 @@ public static partial class PersonalVocabulary
         return key.ToString();
     }
 
-    // "Term = heard": the separator needs a space on one side, so "E=mc2" stays a plain term.
+    // "Term = heard": a separator with a space on one side, or a tight one between a written term and a
+    // spoken word ("X-Hub=xhup"). "E=mc2", "Pi=3.14" or "a=b" stay plain terms.
     private static bool IsSeparator(string line, int i) => line[i] is '=' or '~'
-        && ((i > 0 && char.IsWhiteSpace(line[i - 1])) || (i + 1 < line.Length && char.IsWhiteSpace(line[i + 1])));
+        && ((i > 0 && char.IsWhiteSpace(line[i - 1])) || (i + 1 < line.Length && char.IsWhiteSpace(line[i + 1])) || IsTightSeparator(line, i));
+
+    private static bool IsTightSeparator(string line, int i)
+    {
+        var left = line[..i];
+        left = left[(left.LastIndexOfAny([' ', '\t', ',', '=', '~']) + 1)..];
+        var right = line[(i + 1)..];
+        var end = right.IndexOfAny([' ', '\t', ',', '=', '~']);
+        right = end < 0 ? right : right[..end];
+        return left.Length >= 2 && Key(left).Length > 0 && (char.IsLetterOrDigit(left[^1]) || left[^1] is '#' or '+') && left.All(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '\'' or '’' or '+' or '#')
+            && right.Length >= 2 && right.All(c => char.IsLetter(c) || c is '-' or '\'' or '’');
+    }
 
     public static VocabularyEntry Parse(string line)
     {
@@ -52,7 +64,9 @@ public static partial class PersonalVocabulary
             (line[separators[s]] == '=' ? always : context).AddRange(line[start..end].Split(',').Select(h => h.Trim())
                 .Where(h => h.Length >= 2 && h.Any(char.IsLetter) && Key(h) != Key(term)));
         }
-        if (Key(term).Length == 0 || always.Count + context.Count == 0) return new VocabularyEntry(line, [], []);
+        // A term of a single character is a formula or a symbol ("E = mc2", "F = ma"), never a replacement rule.
+        // "C# = c sharp" or "C++ = c plus plus" are written with more characters and keep their rules.
+        if (Key(term).Length == 0 || term.Length < 2 || always.Count + context.Count == 0) return new VocabularyEntry(line, [], []);
         return Merge(new VocabularyEntry(term, [], []), always, context);
     }
 
@@ -100,20 +114,25 @@ public static partial class PersonalVocabulary
     /// count, never added text, long rewrites or numbers. A replacement is learned as "Term ~ heard" only when
     /// the new spelling looks like a name or jargon: a capital that is not the start of a sentence, inner
     /// capitals or hyphens. Fixing only the spelling of a term, or joining its words, learns the term itself.
-    /// Learned forms are context-only; the user can change "~" to "=" to always replace them.
+    /// Learned forms are context-only; the user can change "~" to "=" to always replace them. A change of case
+    /// alone ("claude" -> "Claude") inside a sentence learns the term as a glossary entry; at the start of a
+    /// sentence it is ordinary capitalization and is not learned. Added names are not learned.
     /// </summary>
     public static List<string> Learn(string original, string corrected)
     {
         var before = Tokens().Matches(original).Select(m => m.Value).ToList();
         var after = Tokens().Matches(corrected).Select(m => m.Value).ToList();
         var learned = new List<string>();
-        foreach (var (oldSpan, newSpan) in ReplacedSpans(before, after))
+        foreach (var (oldSpan, newSpan, caseOnly) in ReplacedSpans(before, after))
         {
             if (oldSpan.Count > 3 || newSpan.Count > 3 || oldSpan.Concat(newSpan).Any(w => w.Any(char.IsDigit))) continue;
             var (term, index) = PhraseIn(corrected, newSpan);
             var heard = string.Join(" ", oldSpan);
             if (Key(term).Length < 3 || newSpan.All(Common.Contains)) continue;
-            var sentenceStart = corrected[..index].TrimEnd() is var prefix && (prefix.Length == 0 || prefix[^1] is '.' or '!' or '?' or '¿' or '¡' or ':' or '\n');
+            var sentenceStart = IsSentenceStart(corrected, index);
+            // Case only: the term enters the glossary, never as a rule. A term with spelling variants (inner capitals
+            // or hyphens: "DeepSeek", "LaTeX") would rewrite every lowercase use ("guantes de latex"), so it is not learned.
+            if (caseOnly) { if (!sentenceStart && char.IsUpper(term[0]) && !HasSpellingVariants(term)) learned.Add(term); continue; }
             var looksLikeName = IsWritten(term) || (char.IsUpper(term[0]) && !sentenceStart);
             // Same letters: a spelling fix ("novahub" -> "Nova-Hub") or joined words ("work tree" -> "worktree").
             if (Key(term) == Key(heard)) { if (looksLikeName || newSpan.Count != oldSpan.Count) learned.Add(term); continue; }
@@ -121,6 +140,18 @@ public static partial class PersonalVocabulary
         }
         return learned.DistinctBy(l => Key(Parse(l).Term)).Take(10).ToList();
     }
+
+    // The start of the text or of a line, a list item ("- ", "• ", "1. ") or a word after . ! ? ¿ ¡ or :.
+    private static bool IsSentenceStart(string corrected, int index)
+    {
+        var before = corrected[..index];
+        var line = before[(before.LastIndexOf('\n') + 1)..].Trim();
+        if (line.Length == 0 || ListMarker().IsMatch(line)) return true;
+        return line[^1] is '.' or '!' or '?' or '¿' or '¡' or ':';
+    }
+
+    [GeneratedRegex(@"^(?:[-*•]|\d{1,3}[.)])$", RegexOptions.CultureInvariant)]
+    private static partial Regex ListMarker();
 
     // Keeps the corrected spelling, including hyphens between the words ("Nova-Hub").
     private static (string Text, int Index) PhraseIn(string corrected, List<string> span)
@@ -130,8 +161,9 @@ public static partial class PersonalVocabulary
         return match.Success ? (match.Value, match.Index) : (string.Join(" ", span), 0);
     }
 
-    // Word-level LCS alignment, case-insensitive. Pure insertions and deletions are not replacements.
-    private static IEnumerable<(List<string> Old, List<string> New)> ReplacedSpans(List<string> a, List<string> b)
+    // Word-level LCS alignment, case-insensitive. Pure insertions and deletions are not replacements. Runs of
+    // aligned words that changed only their case come out apart, with CaseOnly set.
+    private static IEnumerable<(List<string> Old, List<string> New, bool CaseOnly)> ReplacedSpans(List<string> a, List<string> b)
     {
         if ((long)a.Count * b.Count > 4_000_000) yield break;
         var lcs = new int[a.Count + 1, b.Count + 1];
@@ -139,18 +171,29 @@ public static partial class PersonalVocabulary
             for (var j = b.Count - 1; j >= 0; j--)
                 lcs[i, j] = string.Equals(a[i], b[j], StringComparison.OrdinalIgnoreCase) ? lcs[i + 1, j + 1] + 1 : Math.Max(lcs[i + 1, j], lcs[i, j + 1]);
         int x = 0, y = 0;
-        List<string> oldSpan = [], newSpan = [];
+        List<string> oldSpan = [], newSpan = [], oldCase = [], newCase = [];
         while (x < a.Count || y < b.Count)
         {
             if (x < a.Count && y < b.Count && string.Equals(a[x], b[y], StringComparison.OrdinalIgnoreCase))
             {
-                if (oldSpan.Count > 0 && newSpan.Count > 0) yield return (oldSpan, newSpan);
-                oldSpan = []; newSpan = []; x++; y++;
+                if (oldSpan.Count > 0 && newSpan.Count > 0) yield return (oldSpan, newSpan, false);
+                oldSpan = []; newSpan = [];
+                if (a[x] != b[y]) { oldCase.Add(a[x]); newCase.Add(b[y]); }
+                else
+                {
+                    if (newCase.Count > 0) yield return (oldCase, newCase, true);
+                    oldCase = []; newCase = [];
+                }
+                x++; y++;
+                continue;
             }
-            else if (y < b.Count && (x == a.Count || lcs[x, y + 1] >= lcs[x + 1, y])) newSpan.Add(b[y++]);
+            if (newCase.Count > 0) yield return (oldCase, newCase, true);
+            oldCase = []; newCase = [];
+            if (y < b.Count && (x == a.Count || lcs[x, y + 1] >= lcs[x + 1, y])) newSpan.Add(b[y++]);
             else oldSpan.Add(a[x++]);
         }
-        if (oldSpan.Count > 0 && newSpan.Count > 0) yield return (oldSpan, newSpan);
+        if (oldSpan.Count > 0 && newSpan.Count > 0) yield return (oldSpan, newSpan, false);
+        if (newCase.Count > 0) yield return (oldCase, newCase, true);
     }
 
     /// <summary>Upper bound for every Whisper prompt built here, with or without live context.</summary>
@@ -211,7 +254,14 @@ public static partial class PersonalVocabulary
         && (term.Contains('-') || term.Skip(1).Any(char.IsUpper)) && term.Any(char.IsLower);
 
     // Variants of a written term: case, and a space or hyphen where the term has a hyphen ("nova hub" -> "Nova-Hub").
-    private static string VariantPattern(string term) => string.Join("[ -]?", term.Split('-', StringSplitOptions.RemoveEmptyEntries).Select(Regex.Escape));
+    // A part of two letters or less, or a common word, makes the spaced and joined forms ordinary text ("what to do",
+    // "a team", "login"): then only the case of the hyphenated form varies.
+    private static string VariantPattern(string term)
+    {
+        var parts = term.Split('-', StringSplitOptions.RemoveEmptyEntries);
+        var separator = parts.Any(p => p.Length <= 2 || Common.Contains(p)) ? "-" : "[ -]?";
+        return string.Join(separator, parts.Select(Regex.Escape));
+    }
 
     // A heard form with optional spaces, hyphens, dots or apostrophes between its letters, never line breaks:
     // "novahup" also matches "nova up" and "nova-up". Accents are matched literally.
@@ -225,18 +275,31 @@ public static partial class PersonalVocabulary
         var list = lines as IList<string> ?? lines.ToList();
         var signature = string.Join("\n", list);
         lock (CacheGate) if (cache.Signature == signature && cache.Regex != null) return (cache.Regex, cache.Terms);
-        var forms = new List<(string Pattern, string Term)>();
+        var forms = new List<(string Pattern, string Term, int Letters)>();
         foreach (var entry in Entries(list))
         {
-            if (HasSpellingVariants(entry.Term)) forms.Add((VariantPattern(entry.Term), entry.Term));
-            foreach (var heard in entry.Always) forms.Add((HeardPattern(heard), entry.Term));
+            if (HasSpellingVariants(entry.Term)) forms.Add((VariantPattern(entry.Term), entry.Term, Key(entry.Term).Length));
+            foreach (var heard in entry.Always) forms.Add((HeardPattern(heard), entry.Term, Key(heard).Length));
         }
-        var ordered = forms.Where(f => f.Pattern.Length > 0).DistinctBy(f => f.Pattern).OrderByDescending(f => f.Pattern.Length).ToList();
+        // Longest form first, counted in letters: a heard pattern is a much longer string than a variant pattern.
+        var ordered = forms.Where(f => f.Pattern.Length > 0).DistinctBy(f => f.Pattern).OrderByDescending(f => f.Letters).ThenByDescending(f => f.Pattern.Length).ToList();
         var regex = ordered.Count == 0 ? null : new Regex(@"(?<![\p{L}\p{M}\p{N}])(?:" + string.Join("|", ordered.Select((f, i) => $"(?<g{i}>{f.Pattern})")) + @")(?![\p{L}\p{M}\p{N}])",
             RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1));
         var terms = ordered.Select(f => f.Term).ToArray();
         lock (CacheGate) cache = (signature, regex, terms);
         return (regex, terms);
+    }
+
+    // Web addresses, emails, paths and file names keep their spelling: "https://github.com/x", "www.github.com",
+    // "ana@github.com", "C:\novahup\x", "github.com" or "novahup.txt".
+    private static bool InAddress(string text, int index, int length)
+    {
+        int start = index, end = index + length;
+        while (start > 0 && !char.IsWhiteSpace(text[start - 1])) start--;
+        while (end < text.Length && !char.IsWhiteSpace(text[end])) end++;
+        var token = text[start..end];
+        return token.Contains("://") || token.StartsWith("www.", StringComparison.OrdinalIgnoreCase) || token.IndexOfAny(['/', '\\', '@']) >= 0
+            || (index + length + 1 < text.Length && text[index + length] == '.' && char.IsLetterOrDigit(text[index + length + 1]));
     }
 
     /// <summary>
@@ -255,6 +318,7 @@ public static partial class PersonalVocabulary
         {
             var result = regex.Replace(text, match =>
             {
+                if (InAddress(text, match.Index, match.Length)) return match.Value;
                 for (var i = 0; i < terms.Length; i++)
                     if (match.Groups[$"g{i}"].Success)
                     {
