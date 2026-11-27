@@ -82,11 +82,52 @@ static class VocabularyChecks
         check(PersonalVocabulary.Learn("hola\nescribe a claude", "hola\nescribe a Claude").SequenceEqual(["Claude"]), "J19-2: a case change inside a line after a line break is still learned");
         check(PersonalVocabulary.Learn("tarea - pregunta a cloud", "tarea - pregunta a Claude").SequenceEqual(["Claude ~ cloud"]), "J19-2: a dash inside a sentence is not a list marker");
         // J19-1: symbolic terms of more than one character keep their rules.
-        // C# and C++ share the letter key "c" and merge into one entry (pre-existing, backlog): they are checked apart.
         string[] symbols = ["C# = c sharp", "F#=fsharp"];
         check(PersonalVocabulary.Apply("uso c sharp y fsharp", symbols) == "uso C# y F#" && PersonalVocabulary.Apply("uso c plus plus", ["C++ = c plus plus"]) == "uso C++", "J19-1: C#, F# and C++ keep their heard forms");
         var symbolPrompt = PersonalVocabulary.Prompt(symbols);
         check(symbolPrompt == "Glosario: C#, F#." && PersonalVocabulary.Prompt(["C++ = c plus plus"]) == "Glosario: C++.", "J19-1: heard forms of symbolic terms stay out of the Whisper prompt: " + symbolPrompt);
+        // Debt from the independent review of PR 19 (J19-4, J19-5, J19-7, J19-8, J19-9).
+        var both = PersonalVocabulary.Normalize(["C# = c sharp", "C++ = c plus plus", "c#"]);
+        check(both.SequenceEqual(["C# = c sharp", "C++ = c plus plus"]) && PersonalVocabulary.Apply("uso c sharp y c plus plus", both) == "uso C# y C++",
+            "J19-8: C# and C++ share the letter key but stay two entries: " + string.Join(" | ", both));
+        var vocabularyRoot = Path.Combine(Path.GetTempPath(), "notaker-vocabulary-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            new Storage(vocabularyRoot).SaveVocabulary(["C# = c sharp", "C++ = c plus plus"]);
+            var reloaded = new Storage(vocabularyRoot).Vocabulary;
+            check(reloaded.SequenceEqual(["C# = c sharp", "C++ = c plus plus"]), "J19-8: the C++ line survives saving and loading: " + string.Join(" | ", reloaded));
+        }
+        finally { try { Directory.Delete(vocabularyRoot, true); } catch (IOException) { } }
+        check(PersonalVocabulary.Normalize(["Nova-Hub", "nova hub", "NovaHub = novaub"]).SequenceEqual(["Nova-Hub = novaub"]), "J19-8: terms with letters still merge by their letters");
+        string[] compounds = ["Read-Only", "Know-How", "Check-Out", "Nova-Hub"];
+        check(PersonalVocabulary.Apply("the file is read only, I know how to do it, git checkout main; READ-ONLY and know-HOW", compounds)
+            == "the file is read only, I know how to do it, git checkout main; Read-Only and Know-How", "J19-4: everyday compounds only fix the case of the hyphenated form");
+        check(PersonalVocabulary.Apply("abre nova hub y novahub", compounds) == "abre Nova-Hub y Nova-Hub", "J19-4: distinctive hyphenated names keep their spaced and joined variants");
+        var formulas = PersonalVocabulary.Normalize(["H2O=agua", "NaCl=sal", "CO2=gas"]);
+        check(formulas.SequenceEqual(["H2O=agua", "NaCl=sal", "CO2=gas"]) && PersonalVocabulary.Apply("bebe agua con sal y gas", formulas) == "bebe agua con sal y gas",
+            "J19-5: chemical formulas written without spaces are plain terms: " + string.Join(" | ", formulas));
+        check(PersonalVocabulary.Parse("GitHub=gitjab").Always.SequenceEqual(["gitjab"]) && PersonalVocabulary.Parse("PR=pe").Always.SequenceEqual(["pe"])
+            && PersonalVocabulary.Apply("bebe agua", ["H2O = agua"]) == "bebe H2O", "J19-5: names, acronyms and formulas with spaces keep their rules");
+        string[] digitAcronyms = ["B2B=bitubi", "P2P=pitupi", "V8=veocho", "W3C=wtresc"];
+        check(PersonalVocabulary.Apply("modelo bitubi y pitupi, motor veocho, norma wtresc", digitAcronyms) == "modelo B2B y P2P, motor V8, norma W3C",
+            "J20-1: acronyms with digits made of element letters keep tight rules spoken with their first letter");
+        check(PersonalVocabulary.Normalize(["a+=bb", "x#=yy"]).SequenceEqual(["a+=bb", "x#=yy"]) && PersonalVocabulary.Apply("bb y yy", ["a+=bb", "x#=yy"]) == "bb y yy",
+            "J19-9: compound assignments are code, not rules");
+        check(PersonalVocabulary.Parse("C#=csharp").Always.SequenceEqual(["csharp"]) && PersonalVocabulary.Parse("C++=cplusplus").Always.SequenceEqual(["cplusplus"])
+            && PersonalVocabulary.Parse("Notepad++=notepadplusplus").Always.SequenceEqual(["notepadplusplus"]), "J19-9: symbol terms keep tight rules spoken with their first letter");
+        foreach (var (raw, fixedText) in new[]
+        {
+            ("dijo: «luego vamos»", "dijo: «Luego vamos»"),
+            ("«… luego vamos»", "«… Luego vamos»"),
+            ("lo pensé… luego vamos", "lo pensé… Luego vamos"),
+            ("—luego vamos —dijo", "—Luego vamos —dijo"),
+            ("\"luego vamos\"", "\"Luego vamos\""),
+            ("a) luego vamos\nb) comprar pan", "a) Luego vamos\nb) Comprar pan"),
+        })
+            check(!PersonalVocabulary.Learn(raw, fixedText).Any(), "J19-7: capitals after opening signs, ellipses or letter list markers are not learned: " + fixedText.Replace("\n", " / "));
+        check(PersonalVocabulary.Learn("fui —con claude— al centro", "fui —con Claude— al centro").SequenceEqual(["Claude"])
+            && PersonalVocabulary.Learn("dijo «claude» y se fue", "dijo «Claude» y se fue").SequenceEqual(["Claude"])
+            && PersonalVocabulary.Learn("vitamina a y claude", "vitamina a y Claude").SequenceEqual(["Claude"]), "J19-7: a dash, quotes or a single letter inside a sentence are not a start");
         string[] github = ["GitHub", "Nova-Hub = novahup"];
         foreach (var address in new[] { "https://github.com/ana/x", "www.github.com", "ana@github.com", "C:\\novahup\\x", "github.com", "novahup.txt", "repo/novahup" })
             check(PersonalVocabulary.Apply("abre " + address + " ya", github, out var touched) == "abre " + address + " ya" && touched == 0, "J18-3: addresses, paths and files are not rewritten: " + address);
